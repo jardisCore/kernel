@@ -9,7 +9,7 @@ jobs:
     name: sync main → develop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.SHARED_CONFIG_TOKEN }}
           fetch-depth: 0
