@@ -1,0 +1,10 @@
+parameters:
+    level: 8
+    paths:
+        - src
+    ignoreErrors:
+        -
+            identifier: return.type
+            path: src/BoundedContext.php
+            message: '#should return T\|null but returns object#'
+            count: 1
