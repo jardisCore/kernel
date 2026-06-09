@@ -1,7 +1,7 @@
 {
     "name": "jardiscore/kernel",
     "homepage": "https://docs.jardis.io/en/core/kernel",
-    "description": "DDD Kernel for PHP — BoundedContext, ContextResponse, DomainResponse, DomainKernel",
+    "description": "Hexagonal DDD kernel for PHP — DomainApp, BoundedContext, ContextResponse, DomainResponse; the runtime core that Jardis-generated domain code runs on",
     "type": "library",
     "license": "MIT",
     "minimum-stability": "stable",
@@ -53,6 +53,11 @@
         "kernel",
         "bounded-context",
         "ddd",
+        "domain-driven-design",
+        "hexagonal-architecture",
+        "cqrs",
+        "code-generation",
+        "php",
         "JardisCore",
         "Headgent"
     ],
