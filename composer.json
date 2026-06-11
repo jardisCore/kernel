@@ -1,6 +1,6 @@
 {
     "name": "jardiscore/kernel",
-    "homepage": "https://docs.jardis.io/en/core/kernel",
+    "homepage": "https://jardis.io",
     "description": "Hexagonal DDD kernel for PHP — DomainApp, BoundedContext, ContextResponse, DomainResponse; the runtime core that Jardis-generated domain code runs on",
     "type": "library",
     "license": "MIT",
@@ -44,9 +44,11 @@
             "JardisCore\\Kernel\\Tests\\": "tests/",
             "FakeDomain\\": "tests/Fixtures/FakeDomain/"
         }
-    },    "support": {
+    },
+    "support": {
         "issues": "https://github.com/jardisCore/kernel/issues",
-        "email": "jardisCore@headgent.dev"
+        "docs": "https://docs.jardis.io/en/core/kernel",
+        "email": "jardisDev@headgent.com"
     },
     "keywords": [
         "domain",
@@ -58,8 +60,8 @@
         "cqrs",
         "code-generation",
         "php",
-        "JardisCore",
-        "Headgent"
+        "jardiscore",
+        "headgent"
     ],
     "config": {
         "allow-plugins": {

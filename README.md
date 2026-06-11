@@ -60,6 +60,7 @@ class Ecommerce extends DomainApp
 
 ```php
 use JardisCore\Kernel\BoundedContext;
+use JardisCore\Kernel\Response\DomainResponse;
 use JardisCore\Kernel\Response\DomainResponseTransformer;
 
 class PlaceOrder extends BoundedContext
@@ -76,6 +77,25 @@ class PlaceOrder extends BoundedContext
         $this->result()->addEvent(new OrderPlaced($order));
 
         return (new DomainResponseTransformer())->transform($this->result());
+    }
+}
+
+final class OrderPlaced
+{
+    public function __construct(public readonly array $order)
+    {
+    }
+}
+```
+
+The context class is the API boundary — it wires named use-case methods to their handlers via `context()`, which sets the payload for the call chain:
+
+```php
+class OrderContext extends BoundedContext
+{
+    public function placeOrder(array $order): DomainResponse
+    {
+        return $this->context(PlaceOrder::class, $order)();
     }
 }
 ```
@@ -279,7 +299,7 @@ ContextResponse → DomainResponseTransformer → DomainResponse
 
 ## Kernel and Foundation
 
-Jardis Kernel is a **platform** — it provides the building blocks but leaves service assembly to you. Its sister package **[Jardis Foundation](https://github.com/jardisCore/foundation)** (`jardiscore/foundation`) builds on top of Kernel and turns it into a ready-to-run solution:
+Jardis Kernel is the **DDD core** — it provides the building blocks but leaves service assembly to you. Its sister package **[Jardis Foundation](https://github.com/jardisCore/foundation)** (`jardiscore/foundation`) builds on top of Kernel and turns it into a ready-to-run platform:
 
 | | Kernel | Foundation |
 |---|--------|-----------|
@@ -291,9 +311,9 @@ Jardis Kernel is a **platform** — it provides the building blocks but leaves s
 
 **When to use which:** Start with Foundation for most projects — it handles all infrastructure wiring. Use Kernel directly when you need full control or want to integrate Jardis into an existing DI setup.
 
-### Platform for Jardis-generated code
+### Runtime for Jardis-generated code
 
-Both Kernel and Foundation serve as the **runtime platform** for the code Jardis generates — DDD project structures like Aggregates, BoundedContexts, Repositories, Commands, and Queries that run directly on these platforms:
+Both Kernel and Foundation serve as the **runtime** for the code Jardis generates — DDD project structures like Aggregates, BoundedContexts, Repositories, Commands, and Queries that run directly on these packages:
 
 ```
 Jardis (development-time)
@@ -332,13 +352,13 @@ Free for any purpose — commercial or non-commercial.
 *Built by [Headgent Development](https://headgent.com)*
 
 <!-- BEGIN jardis/dev-skills README block — do not edit by hand -->
-## KI-gestützte Entwicklung
+## AI-Assisted Development
 
-Dieses Package liefert einen Skill für Claude Code, Cursor, Continue und Aider mit. Installation im Konsumentenprojekt:
+This package ships with a skill for Claude Code, Cursor, Continue, and Aider. Install it in your consuming project:
 
 ```bash
 composer require --dev jardis/dev-skills
 ```
 
-Mehr Details: <https://docs.jardis.io/en/skills>
+More details: <https://docs.jardis.io/en/skills>
 <!-- END jardis/dev-skills README block -->
