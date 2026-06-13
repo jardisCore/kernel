@@ -7,6 +7,7 @@ namespace JardisCore\Kernel\Tests\Unit\Response;
 use JardisCore\Kernel\Response\DomainResponse;
 use JardisCore\Kernel\Response\ResponseStatus;
 use JardisSupport\Contract\Kernel\DomainResponseInterface;
+use JardisSupport\Contract\Kernel\EventScope;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -91,6 +92,48 @@ class DomainResponseTest extends TestCase
         );
 
         $this->assertSame($events, $response->getEvents());
+    }
+
+    public function testGetEventsByScopeReturnsScopeGroupedEvents(): void
+    {
+        $internal = new class {
+            public string $type = 'StockAdjusted';
+        };
+        $domain = new class {
+            public string $type = 'OrderPlaced';
+        };
+
+        $response = new DomainResponse(
+            ResponseStatus::Created,
+            [],
+            [],
+            [],
+            [],
+            [
+                'internal' => ['PlaceOrder' => [$internal]],
+                'domain' => ['PlaceOrder' => [$domain]],
+            ]
+        );
+
+        $this->assertSame(['PlaceOrder' => [$internal]], $response->getEvents(EventScope::Internal));
+        $this->assertSame(['PlaceOrder' => [$domain]], $response->getEvents(EventScope::Domain));
+        // Without a scope, the scope axis collapses back to the flat context map.
+        $this->assertCount(2, $response->getEvents()['PlaceOrder']);
+    }
+
+    public function testLegacyFlatEventsAreClassifiedAsInternal(): void
+    {
+        $event = new class {
+            public string $type = 'OrderCreated';
+        };
+        $flat = ['PlaceOrder' => [$event]];
+
+        // Legacy 5-arg construction: events passed as the flat 3rd param.
+        $response = new DomainResponse(ResponseStatus::Created, [], $flat, [], []);
+
+        $this->assertSame($flat, $response->getEvents(EventScope::Internal));
+        $this->assertSame([], $response->getEvents(EventScope::Domain));
+        $this->assertSame($flat, $response->getEvents());
     }
 
     public function testGetErrorsReturnsContextKeyedErrors(): void

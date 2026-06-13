@@ -16,7 +16,7 @@
         "php": ">=8.2",
         "ext-pdo": "*",
         "jardis/dev-skills": "^1.0",
-        "jardissupport/contract": "^1.0",
+        "jardissupport/contract": "^1.0.4",
         "jardissupport/classversion": "^1.0",
         "jardissupport/dotenv": "^1.0",
         "jardissupport/factory": "^1.0",
