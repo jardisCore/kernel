@@ -6,6 +6,7 @@ namespace JardisCore\Kernel\Tests\Unit\Response;
 
 use JardisCore\Kernel\Response\ContextResponse;
 use JardisSupport\Contract\Kernel\ContextResponseInterface;
+use JardisSupport\Contract\Kernel\EventScope;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -111,6 +112,39 @@ class ContextResponseTest extends TestCase
 
         $this->assertArrayHasKey('EmptyContext', $events);
         $this->assertEmpty($events['EmptyContext']);
+    }
+
+    public function testAddEventGroupsEventsByScope(): void
+    {
+        $result = new ContextResponse('OrderContext');
+        $internal = new class {
+            public string $type = 'StockAdjusted';
+        };
+        $domain = new class {
+            public string $type = 'OrderPlaced';
+        };
+
+        $result->addEvent($internal, EventScope::Internal);
+        $result->addEvent($domain, EventScope::Domain);
+
+        $this->assertSame([$internal], $result->getEvents(EventScope::Internal)['OrderContext']);
+        $this->assertSame([$domain], $result->getEvents(EventScope::Domain)['OrderContext']);
+        // Without a scope, both buckets flatten back into the single context list.
+        $this->assertCount(2, $result->getEvents()['OrderContext']);
+    }
+
+    public function testAddEventDefaultsToInternalScope(): void
+    {
+        $result = new ContextResponse('OrderContext');
+        $event = new class {
+            public string $type = 'OrderCreated';
+        };
+
+        $result->addEvent($event);
+
+        $this->assertSame([$event], $result->getEvents(EventScope::Internal)['OrderContext']);
+        // Phase A: nothing is classified Domain, so that scope stays empty.
+        $this->assertEmpty($result->getEvents(EventScope::Domain)['OrderContext']);
     }
 
     public function testAddErrorStoresErrorMessage(): void
