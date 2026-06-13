@@ -6,6 +6,7 @@ namespace JardisCore\Kernel\Response;
 
 use JardisSupport\Contract\Kernel\ContextResponseInterface;
 use JardisSupport\Contract\Kernel\DomainResponseInterface;
+use JardisSupport\Contract\Kernel\EventScope;
 
 /**
  * Transforms ContextResponses into an immutable DomainResponse.
@@ -29,7 +30,7 @@ class DomainResponseTransformer
         ?ResponseStatus $status = null
     ): DomainResponseInterface {
         $data = $this->aggregateData($result, $this->visited());
-        $events = $this->aggregateEvents($result, $this->visited());
+        $eventsByScope = $this->aggregateEvents($result);
         $errors = $this->aggregateErrors($result, $this->visited());
         $contexts = $this->collectContexts($result, $this->visited());
 
@@ -42,7 +43,7 @@ class DomainResponseTransformer
             'version' => $this->version,
         ];
 
-        return new DomainResponse($resolvedStatus, $data, $events, $errors, $metadata);
+        return new DomainResponse($resolvedStatus, $data, [], $errors, $metadata, $eventsByScope);
     }
 
     /**
@@ -63,17 +64,48 @@ class DomainResponseTransformer
     }
 
     /**
-     * Aggregate events from result and all sub-results recursively.
+     * Aggregate events from the result tree, grouped by scope value, then context.
+     *
+     * Each scope is walked over its own fresh visited-set; empty scopes are
+     * dropped so getEvents(Domain) stays empty until a Domain producer exists.
+     *
+     * @return array<string, array<string, array<int, object>>>
+     */
+    private function aggregateEvents(ContextResponseInterface $result): array
+    {
+        $byScope = [];
+
+        foreach (EventScope::cases() as $scope) {
+            $scopeEvents = $this->aggregateEventsForScope($result, $scope, $this->visited());
+            if ($scopeEvents !== []) {
+                $byScope[$scope->value] = $scopeEvents;
+            }
+        }
+
+        return $byScope;
+    }
+
+    /**
+     * Aggregate the events of a single scope from result and all sub-results recursively.
      *
      * @param \SplObjectStorage<ContextResponseInterface, true> $visited
      * @return array<string, array<int, object>>
      */
-    private function aggregateEvents(ContextResponseInterface $result, \SplObjectStorage $visited): array
-    {
-        $events = $result->getEvents();
+    private function aggregateEventsForScope(
+        ContextResponseInterface $result,
+        EventScope $scope,
+        \SplObjectStorage $visited
+    ): array {
+        $events = [];
+
+        foreach ($result->getEvents($scope) as $context => $contextEvents) {
+            if (!empty($contextEvents)) {
+                $events[$context] = $contextEvents;
+            }
+        }
 
         foreach ($this->subResults($result, $visited) as $subResult) {
-            $events = array_merge($events, $this->aggregateEvents($subResult, $visited));
+            $events = array_merge($events, $this->aggregateEventsForScope($subResult, $scope, $visited));
         }
 
         return $events;

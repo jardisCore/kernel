@@ -8,6 +8,7 @@ use JardisCore\Kernel\Response\ContextResponse;
 use JardisCore\Kernel\Response\DomainResponseTransformer;
 use JardisCore\Kernel\Response\ResponseStatus;
 use JardisSupport\Contract\Kernel\DomainResponseInterface;
+use JardisSupport\Contract\Kernel\EventScope;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -105,6 +106,48 @@ class DomainResponseTransformerTest extends TestCase
 
         $this->assertArrayHasKey('PlaceOrder', $events);
         $this->assertArrayHasKey('CheckInventory', $events);
+    }
+
+    public function testTransformClassifiesAggregateEventsAsInternal(): void
+    {
+        $transformer = new DomainResponseTransformer();
+
+        $event = new class {
+            public string $type = 'OrderCreated';
+        };
+
+        $result = new ContextResponse('PlaceOrder');
+        $result->addEvent($event); // default scope = Internal
+
+        $response = $transformer->transform($result);
+
+        $this->assertSame([$event], $response->getEvents(EventScope::Internal)['PlaceOrder']);
+        // Phase A produces no Domain events, so that scope is empty.
+        $this->assertSame([], $response->getEvents(EventScope::Domain));
+        $this->assertCount(1, $response->getEvents()['PlaceOrder']);
+    }
+
+    public function testTransformGroupsExplicitDomainScopeSeparately(): void
+    {
+        $transformer = new DomainResponseTransformer();
+
+        $internal = new class {
+            public string $type = 'StockAdjusted';
+        };
+        $domain = new class {
+            public string $type = 'OrderPlaced';
+        };
+
+        $result = new ContextResponse('PlaceOrder');
+        $result->addEvent($internal, EventScope::Internal);
+        $result->addEvent($domain, EventScope::Domain);
+
+        $response = $transformer->transform($result);
+
+        // Infrastructure is ready for Phase B: the Domain path flows through end-to-end.
+        $this->assertSame([$internal], $response->getEvents(EventScope::Internal)['PlaceOrder']);
+        $this->assertSame([$domain], $response->getEvents(EventScope::Domain)['PlaceOrder']);
+        $this->assertCount(2, $response->getEvents()['PlaceOrder']);
     }
 
     public function testTransformAggregatesErrors(): void
