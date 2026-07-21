@@ -227,7 +227,7 @@ There is no ENV key or mechanism in `core/kernel` to force a service "off"
 while a shared fallback stays reachable elsewhere — the only way a service
 resolves to `null` is that it was never configured (no matching ENV key, or
 the adapter package not installed). Any doc that still describes a
-three-state `Instance|false|null` contract for a kernel-v2 accessor describes
+three-state `Instance|false|null` contract for a pre-decoupling kernel accessor describes
 removed `foundation`-era behaviour, not this package.
 
 ## `APP_DEBUG`
