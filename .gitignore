@@ -1,0 +1,38 @@
+.DS_Store
+.idea/
+
+vendor/
+tests/reports/
+
+*.tmp
+*.cache
+# Ausnahme: .env.cache ist eine Bootstrap-Packer-Test-Fixture, kein Tool-Cache
+# (CI-Rotlauf 29529973826: *.cache verschluckte sie, lokal gruen / CI EnvFileNotFound)
+!tests/Fixtures/**/.env.cache
+*.log
+composer.lock
+/.env
+.claude/CLAUDE.md
+.claude/settings.local.json
+.claude/cache/
+
+# docs/ wird lokal gehalten, nicht committet (inkl. Session-Handover-Doku)
+# Ausnahme: docs/env-examples/ ist ein committetes Package-Artefakt (Kernel-Entkopplung P2,
+# .env-Vorlagen fuer den Bootstrap-Packer) — kein Session-Scratch.
+docs/*
+!docs/env-examples/
+
+# dev-skills Skill-Backups — lokal, nie committen
+.claude/skills/*.backup/
+AGENTS.md.backup
+
+# Fremde Skill-Kopien werden nicht committet. Das dev-skills-Composer-Plugin
+# installiert die Skills der Abhaengigkeiten (7 Adapter, 3 Support, 3 Bundle) nach
+# .claude/skills/ und ueberschreibt sie bei jedem install/update: CopySkill schiebt
+# ein vorhandenes Verzeichnis per HandleConflict nach *.backup und kopiert die
+# vendor-Fassung darueber. Getrackt erzeugten sie deshalb Phantom-Diffs bei jedem
+# composer update und froren den publizierten Stand ein. Quelle ist immer das
+# jeweilige Package-Repo, nie diese Kopie.
+# Ausnahme: core-kernel ist der EIGENE Skill dieses Packages — er bleibt committet.
+.claude/skills/*
+!.claude/skills/core-kernel/
