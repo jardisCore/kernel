@@ -24,7 +24,7 @@ the generated domain facade's constructor, nothing more.
 ## Why Jardis Kernel?
 
 Generated Jardis domains are hexagonal all the way down: they depend only on
-`jardissupport/contract` interfaces, never on a concrete implementation. This
+`jardissupport/contracts` interfaces, never on a concrete implementation. This
 package is one way to satisfy those interfaces at runtime — a minimal,
 adapter-agnostic infrastructure bundle.
 
@@ -260,18 +260,18 @@ Everything downstream of the Koffer — the generated `{Domain}Context` Naht
 the `ContextResponse` → `DomainResponseTransformer` → `DomainResponse`
 pipeline — is generated per domain by Jardis itself (Kernel-Entkopplung: the
 generated domain is JardisCore-free; it imports only
-`jardissupport/contract`). See the `platform-implementation` skill for that
+`jardissupport/contracts`). See the `platform-implementation` skill for that
 generated-code contract.
 
 ---
 
 ## Constitutional Note (Kernel-Entkopplung D4)
 
-As of this package's v2, `jardiscore/kernel` sits **outside** the hexagonal
+As of the Kernel-Entkopplung redesign, `jardiscore/kernel` sits **outside** the hexagonal
 inner rings — it is Application-layer, not Domain-layer. Concretely:
 
 - The Koffer core (`DomainKernel` + the contract interfaces it implements)
-  stays adapter-free: only `jardissupport/contract` + PSR interfaces.
+  stays adapter-free: only `jardissupport/contracts` + PSR interfaces.
 - The `Bootstrap\` sub-namespace legitimately imports concrete adapter
   packages (`jardisadapter/*`) — that is Application wiring, not Domain code,
   and Application code is allowed to depend on concrete infrastructure.
@@ -291,7 +291,7 @@ Koffer.
 
 | Package | Purpose |
 |---------|---------|
-| `jardissupport/contract` | Interface contracts (`DomainKernelInterface`, `EventListenerRegistryInterface`, etc.) |
+| `jardissupport/contracts` | Interface contracts (`DomainKernelInterface`, `EventListenerRegistryInterface`, etc.) |
 | `jardissupport/classversion` | Versioned class resolution via namespace injection |
 | `jardissupport/factory` | PSR-11 Container + class instantiation |
 | `jardissupport/dotenv` | Cascading `.env` loading — used by `BuildDomainKernelFromEnv` |
