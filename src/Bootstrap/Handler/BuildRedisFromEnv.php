@@ -14,6 +14,12 @@ use RedisException;
  * Shared between the cache and logger builders (Redis fan-out, D4): one
  * connection feeds both `BuildCacheFromEnv` and `BuildLoggerFromEnv`.
  *
+ * `ext-redis` is optional (composer `suggest`). Without it the closure
+ * degrades to `null` like every other Handler — the resulting `DomainKernel`
+ * simply carries no Redis, and cache/logger skip their Redis layer. Without
+ * the `class_exists()` guard, `new Redis()` would raise an `\Error` that the
+ * `RedisException` catch below cannot intercept.
+ *
  * Ported 1:1 from `jardiscore/foundation` (`Handler\RedisHandler`,
  * Kernel-Entkopplung P2).
  */
@@ -22,7 +28,7 @@ final class BuildRedisFromEnv
     /** @param Closure(string): mixed $env */
     public function __invoke(Closure $env, string $prefix = 'redis_'): ?Redis
     {
-        if ($env($prefix . 'host') === null) {
+        if ($env($prefix . 'host') === null || !class_exists(Redis::class)) {
             return null;
         }
 
