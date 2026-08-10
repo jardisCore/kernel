@@ -41,7 +41,7 @@
         "squizlabs/php_codesniffer": "3.13.6",
         "jardis/dev-skills": "^1.0",
         "jardisadapter/cache": "^1.0",
-        "jardisadapter/dbconnection": "^1.0",
+        "jardisadapter/dbconnection": "^1.1",
         "jardisadapter/eventdispatcher": "^1.0",
         "jardisadapter/filesystem": "^1.0",
         "jardisadapter/http": "^1.0",

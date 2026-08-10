@@ -16,7 +16,9 @@ use PDOException;
  *
  * Supports mysql, pgsql, sqlite. Creates a ConnectionPool with read
  * replicas when DB_READER*_HOST is set and jardisadapter/dbconnection
- * is installed. Falls back to plain PDO otherwise.
+ * is installed. Falls back to plain PDO otherwise. Optional pool tuning
+ * via DB_POOL_* keys ({@see BuildConnectionPoolConfigFromEnv}); without
+ * any of them the pool is built exactly as before.
  *
  * Ported 1:1 from `jardiscore/foundation` (`Handler\ConnectionHandler`,
  * Kernel-Entkopplung P2).
@@ -98,6 +100,10 @@ final class BuildConnectionFromEnv
         $charset = (string) ($env('db_charset') ?? ($driver === 'pgsql' ? 'utf8' : 'utf8mb4'));
 
         try {
+            // Built first: an invalid DB_POOL_* value fails fast into the
+            // existing \Throwable fallback below, before any connection opens.
+            $config = (new BuildConnectionPoolConfigFromEnv())($env);
+
             $factory = new ConnectionFactory();
 
             $writerConn = $driver === 'pgsql'
@@ -117,7 +123,9 @@ final class BuildConnectionFromEnv
                     : $factory->mysql($rHost, $rUser, $rPass, $rDb, $rPort, $charset);
             }
 
-            return new ConnectionPool($writerConn, $readerConns);
+            return $config === null
+                ? new ConnectionPool($writerConn, $readerConns)
+                : new ConnectionPool($writerConn, $readerConns, $config);
         } catch (\Throwable $e) {
             error_log(sprintf(
                 '[BuildConnectionFromEnv] ConnectionPool build failed, falling back to plain PDO. Reason: %s',

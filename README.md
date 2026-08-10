@@ -221,6 +221,20 @@ $kernel = new DomainKernel(
 load balancing, and automatic writer fallback when no readers are available.
 Everything downstream (`$kernel->dbConnection()`) doesn't change.
 
+When `BuildDomainKernelFromEnv` builds the pool, five optional `DB_POOL_*`
+keys tune its `ConnectionPoolConfig` (see
+[`docs/env-examples/.env.database.example`](docs/env-examples/.env.database.example)):
+`DB_POOL_VALIDATE_CONNECTIONS`, `DB_POOL_HEALTH_CHECK_CACHE_TTL`,
+`DB_POOL_HEALTH_CHECK_NEGATIVE_CACHE_TTL`, `DB_POOL_LOAD_BALANCING_STRATEGY`
+(`round-robin` | `random`) and `DB_POOL_STICKY_WRITER`
+(`stickyWriterDuringTransaction`: reads inside an open writer transaction go
+to the writer). Setting none of them keeps the adapter defaults — the pool is
+built exactly as before; setting any builds an explicit config where only the
+set keys deviate. `DB_POOL_STICKY_WRITER` requires
+`jardisadapter/dbconnection` >= 1.1.0 — with an older version installed the
+pool build fails and the existing fallback applies: a plain `PDO` on
+`DB_HOST` plus an `error_log` notice.
+
 ---
 
 ## Architecture
