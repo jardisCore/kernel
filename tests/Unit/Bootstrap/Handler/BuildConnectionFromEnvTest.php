@@ -88,6 +88,35 @@ final class BuildConnectionFromEnvTest extends TestCase
         self::assertNull($connection);
     }
 
+    public function testPoolEnvWithStickyWriterKeyStillFallsBackToNullOnUnreachableHosts(): void
+    {
+        // DB_POOL_* keys only tune the pool config — they change nothing about
+        // the existing \Throwable fallback: unreachable writer/reader still
+        // falls back to buildPdo(), which also fails -> null overall.
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+            'db_host' => 'nonexistent_host_that_does_not_exist',
+            'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
+            'db_pool_sticky_writer' => 'true',
+        ]));
+
+        self::assertNull($connection);
+    }
+
+    public function testInvalidPoolStrategyEnvFallsBackViaExistingThrowableCatch(): void
+    {
+        // The adapter-side InvalidArgumentException from an invalid
+        // DB_POOL_LOAD_BALANCING_STRATEGY is thrown before any connection
+        // opens and lands in the existing fallback (plain PDO on db_host,
+        // unreachable here -> null). No exception escapes the handler.
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+            'db_host' => 'nonexistent_host_that_does_not_exist',
+            'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
+            'db_pool_load_balancing_strategy' => 'no-such-strategy',
+        ]));
+
+        self::assertNull($connection);
+    }
+
     public function testConnectionPoolInterfaceIsTheDocumentedReturnType(): void
     {
         // Compile-time / static documentation check — the union return type

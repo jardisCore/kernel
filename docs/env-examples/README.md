@@ -13,27 +13,29 @@ Content revised from the Builder's former `SharedRuntime/` ENV generat
 (`tools/builder tests/Builder/Generated/Domain/SharedRuntime`, read-only
 source for this revision) — that generat used stale, unread ENV keys
 (`DB_WRITER_*`, `CACHE_REDIS_ENABLED`, …, and a `Messaging` section this
-kernel does not build). The keys below are the ones the ten
-`Bootstrap/Handler/*` closures actually read — **ten closures, not eleven**:
-`ls src/Bootstrap/Handler/*.php` → 10 files. Eleven is the packed
-`DomainKernel`'s **accessor** count instead (`grep -cE "public function
-[a-z]" src/DomainKernel.php` → 11) — a different layer (the Koffer's read
-side) from the Bootstrap-Packer's build side documented here. Don't conflate
-the two counts.
+kernel does not build). The keys below are the ones the eleven
+`Bootstrap/Handler/*` closures actually read:
+`ls src/Bootstrap/Handler/*.php` → 11 files (ten before
+`BuildConnectionPoolConfigFromEnv` joined for the `DB_POOL_*` keys). That
+this now numerically matches the packed `DomainKernel`'s **accessor** count
+(`grep -cE "public function [a-z]" src/DomainKernel.php` → 11) is
+coincidence — a different layer (the Koffer's read side) from the
+Bootstrap-Packer's build side documented here. Don't conflate the two
+counts.
 
 ## Files
 
 | Template | Feeds | Required to activate |
 |---|---|---|
 | `.env.example` | cascade root — `load()`s the others | copy first, adjust `load?()` list to what you use |
-| `.env.database.example` | `BuildConnectionFromEnv` | `DB_HOST` (or `DB_DRIVER=sqlite`) |
+| `.env.database.example` | `BuildConnectionFromEnv` (incl. the `DB_POOL_*` keys its `BuildConnectionPoolConfigFromEnv` sub-closure reads) | `DB_HOST` (or `DB_DRIVER=sqlite`) |
 | `.env.redis.example` | `BuildRedisFromEnv` — shared by cache + logger (fan-out, D4) | `REDIS_HOST` |
 | `.env.cache.example` | `BuildCacheFromEnv` (requires `jardisadapter/cache`) | `CACHE_LAYERS` |
 | `.env.logger.example` | `BuildLoggerFromEnv` (requires `jardisadapter/logger`) | `LOG_HANDLERS` |
 | `.env.http.example` | `BuildHttpClientFromEnv` (requires `jardisadapter/http`) | none — works with zero config once the adapter is installed |
 | `.env.mail.example` | `BuildMailerFromEnv` (requires `jardisadapter/mailer`) | `MAIL_HOST` |
 
-Four of the ten Bootstrap handlers need no ENV at all and have no template
+Four of the eleven Bootstrap handlers need no ENV at all and have no template
 here: `BuildFilesystemFromEnv` (stateless factory) and
 `BuildEventListenerProviderFromEnv` / `BuildEventDispatcherFromProvider` (pure
 in-memory pair, D3) activate purely by the corresponding adapter package
@@ -68,12 +70,22 @@ the doc list AC A6 diffs against the source — see "Verifying this list" below.
 | `DB_READER{N}_USER` | writer's `DB_USER` | falls back to the writer value if unset |
 | `DB_READER{N}_PASSWORD` | writer's `DB_PASSWORD` | falls back to the writer value if unset |
 | `DB_READER{N}_DATABASE` | writer's `DB_DATABASE` | falls back to the writer value if unset |
+| `DB_POOL_VALIDATE_CONNECTIONS` | adapter default (`true`) | pool only; string comparison — only the literal `true` is true |
+| `DB_POOL_HEALTH_CHECK_CACHE_TTL` | adapter default (`30`) | pool only; seconds |
+| `DB_POOL_HEALTH_CHECK_NEGATIVE_CACHE_TTL` | adapter default (`0`) | pool only; seconds, `0` = no negative caching |
+| `DB_POOL_LOAD_BALANCING_STRATEGY` | adapter default (`round-robin`) | pool only; `round-robin` \| `random` |
+| `DB_POOL_STICKY_WRITER` | adapter default (`false`) | pool only; `stickyWriterDuringTransaction` — **requires `jardisadapter/dbconnection` >= 1.1.0**; on older versions the pool build fails into the plain-PDO fallback (error_log notice) |
 
 At least one `DB_READER{N}_HOST` plus `jardisadapter/dbconnection` installed
 (`class_exists(ConnectionPool::class)`) builds a `ConnectionPool`; otherwise a
-plain `PDO` on `DB_HOST` is returned. Code:
-`src/Bootstrap/Handler/BuildConnectionFromEnv.php:35-160` (reader family
-specifically `:135-160`, `DB_PATH` specifically `:57`).
+plain `PDO` on `DB_HOST` is returned. The five `DB_POOL_*` keys are read by
+`BuildConnectionPoolConfigFromEnv` and only take effect on the pool branch:
+setting none of them keeps the two-argument `ConnectionPool` construction
+(adapter `ConnectionPoolConfig` defaults, behaviour unchanged); setting any
+builds an explicit config in which only the set keys deviate from those
+defaults. Code: `src/Bootstrap/Handler/BuildConnectionFromEnv.php` (reader
+family in `findReaders`, `DB_PATH` in `buildSqlite`) and
+`src/Bootstrap/Handler/BuildConnectionPoolConfigFromEnv.php`.
 
 ### `BuildRedisFromEnv` (`.env.redis.example`)
 
@@ -148,7 +160,7 @@ Code: `src/Bootstrap/Handler/BuildMailerFromEnv.php:24-51`.
 
 ### No ENV at all
 
-Four of the ten `Bootstrap/Handler/*` closures read no ENV key at all.
+Four of the eleven `Bootstrap/Handler/*` closures read no ENV key at all.
 `BuildFilesystemFromEnv`, `BuildEventListenerProviderFromEnv` and
 `BuildEventDispatcherFromProvider` activate purely on the matching adapter
 package being installed (`class_exists(...)`). `ExtractPdoFromConnection`
@@ -170,7 +182,7 @@ grep -rhoE "prefix \. '[a-z0-9_]+'" src/Bootstrap/Handler/*.php | sed -E "s/.*'(
 grep -rhoE "'log_[a-z_]+_url'" src/Bootstrap/Handler/*.php | tr -d "'"
 ```
 Run from `core/kernel` (each line piped through `tr 'a-z' 'A-Z' | sort -u`,
-45 total, and compared against the tables above). Deliberately drop the
+50 total, and compared against the tables above). Deliberately drop the
 leading `$` from every pattern above (`env(` / `prefix .`, not `$env(` /
 `$prefix .`) — inside a double-quoted bash string, `\$` is consumed by
 bash's own escaping before grep ever sees it (a single backslash yields a
