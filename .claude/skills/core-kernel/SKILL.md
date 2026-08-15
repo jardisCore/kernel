@@ -142,23 +142,9 @@ $ecommerce = new Ecommerce($kernel);
 - **ENV cascade** via `JardisSupport\DotEnv\DotEnv::loadPrivate()` — the same
   `load()`/`load?()` cascade every other Jardis config file understands.
   Templates: `docs/env-examples/`.
-- **Composes 10 Handler closures** in the constructor (`(new Handler())->
-  __invoke(...)` — Closure-Orchestrator, no eager business logic in
-  `BuildDomainKernelFromEnv::__invoke()` itself beyond wiring the return
-  values together): `BuildConnectionFromEnv`, `ExtractPdoFromConnection`,
-  `BuildRedisFromEnv`, `BuildCacheFromEnv`, `BuildLoggerFromEnv`,
-  `BuildEventListenerProviderFromEnv`, `BuildEventDispatcherFromProvider`,
-  `BuildHttpClientFromEnv`, `BuildMailerFromEnv`, `BuildFilesystemFromEnv`.
-  Plus a non-Handler `loadEnv` closure (`DotEnv::loadPrivate(...)`) —
-  **11 `private readonly Closure` properties in total** on the class.
 - **Redis fan-out (D4):** one Redis connection, built once, feeds both the
-  cache `redis` layer and the logger `redis` handler via named sub-closures
-  — no duplicated wiring, no Redis-specific knowledge in the orchestrator body.
-- **Event dispatcher + registry are a pair (D3):** `BuildEventListenerProviderFromEnv`
-  builds one `ListenerProvider`; `BuildEventDispatcherFromProvider` wraps that
-  **same instance** for `eventDispatcher()`, and it is passed unchanged as
-  `eventListenerRegistry()` — a generated `{Agg}EventRouter` registering on
-  the registry is visible to the dispatcher.
+  cache `redis` layer and the logger `redis` handler — no duplicated wiring,
+  no Redis-specific knowledge in the orchestrator body.
 - **Every adapter is optional** (composer `suggest`, not required):
   `jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer}`.
   Each Handler closure degrades to `null` via `class_exists()` guards when its
