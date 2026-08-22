@@ -22,20 +22,20 @@ final class UnreachableServiceExceptionTest extends TestCase
 {
     private function fixturePath(string $name): string
     {
-        return __DIR__ . '/../../Fixtures/Bootstrap/' . $name;
+        return __DIR__ . '/../../Fixtures/ProjectRoot/' . $name;
     }
 
     public function testConfiguredUnreachableDbHostThrows(): void
     {
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('ErrorRules/UnreachableDbHost'));
+        (new BuildDomainKernelFromEnv())($this->fixturePath('UnreachableDbHost'));
     }
 
     public function testConfiguredUnreachableRedisHostThrows(): void
     {
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('ErrorRules/UnreachableRedisHost'));
+        (new BuildDomainKernelFromEnv())($this->fixturePath('UnreachableRedisHost'));
     }
 }

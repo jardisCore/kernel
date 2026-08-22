@@ -46,7 +46,7 @@ class DomainKernelTest extends TestCase
         $filesystem = $this->createMock(FilesystemServiceInterface::class);
 
         $kernel = new DomainKernel(
-            domainRoot: '/app/src',
+            projectRoot: '/app/src',
             container: $container,
             cache: $cache,
             logger: $logger,
@@ -59,7 +59,7 @@ class DomainKernelTest extends TestCase
             env: ['APP_ENV' => 'test'],
         );
 
-        $this->assertSame('/app/src', $kernel->domainRoot());
+        $this->assertSame('/app/src', $kernel->projectRoot());
         $this->assertSame($cache, $kernel->cache());
         $this->assertSame($logger, $kernel->logger());
         $this->assertSame($eventDispatcher, $kernel->eventDispatcher());
@@ -90,7 +90,7 @@ class DomainKernelTest extends TestCase
         $pdo = $this->createMock(PDO::class);
 
         $kernel = new DomainKernel(
-            domainRoot: '/app/src',
+            projectRoot: '/app/src',
             connection: $pdo,
         );
 
@@ -102,7 +102,7 @@ class DomainKernelTest extends TestCase
         $pool = $this->createMock(ConnectionPoolInterface::class);
 
         $kernel = new DomainKernel(
-            domainRoot: '/app/src',
+            projectRoot: '/app/src',
             connection: $pool,
         );
 
@@ -164,18 +164,31 @@ class DomainKernelTest extends TestCase
         $this->assertSame('localhost', $kernel->env('DB_HOST'));
     }
 
-    public function testEnvFallsBackToGlobalEnv(): void
+    public function testEnvDoesNotFallBackToGlobalProcessEnvironment(): void
     {
+        // R3 (G16, BEFUNDE §1b): the global-process-environment fallback is
+        // removed — it looked up a lowercase key against the process
+        // environment, which Docker's UPPERCASE `environment:` entries never
+        // matched anyway (dead code). The kernel is now file-pure: a key
+        // that is only in the global process environment, never in the
+        // private $env array, resolves to null.
         $_ENV['test_global_key'] = 'global_value';
         $kernel = new DomainKernel('/app/src');
 
-        $this->assertSame('global_value', $kernel->env('test_global_key'));
-
-        unset($_ENV['test_global_key']);
+        try {
+            $this->assertNull($kernel->env('test_global_key'));
+        } finally {
+            unset($_ENV['test_global_key']);
+        }
     }
 
-    public function testEnvPrivateOverridesGlobal(): void
+    public function testEnvIgnoresGlobalProcessEnvironmentEvenWhenPrivateKeyIsAbsent(): void
     {
+        // R3 (G16): previously "private overrides global" — now there is no
+        // global fallback to override. A private-array key of the same name
+        // still wins (there is nothing else to compete with); a global-only
+        // value never surfaces regardless of a same-named private key
+        // existing elsewhere.
         $_ENV['test_key'] = 'global';
         $kernel = new DomainKernel('/app/src', env: ['TEST_KEY' => 'private']);
 
@@ -194,20 +207,10 @@ class DomainKernelTest extends TestCase
         $this->assertNull($kernel->env('db_host'));
     }
 
-    public function testEnvMapsEmptyStringFromGlobalEnvToNullToo(): void
-    {
-        $_ENV['test_empty_key'] = '';
-        $kernel = new DomainKernel('/app/src');
-
-        $this->assertNull($kernel->env('test_empty_key'));
-
-        unset($_ENV['test_empty_key']);
-    }
-
-    public function testEmptyDomainRootThrowsException(): void
+    public function testEmptyProjectRootThrowsException(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('domainRoot must not be empty');
+        $this->expectExceptionMessage('projectRoot must not be empty');
 
         new DomainKernel('');
     }

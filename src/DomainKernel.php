@@ -9,6 +9,7 @@ use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
 use JardisSupport\Contract\Kernel\DomainKernelInterface;
 use JardisSupport\Contract\Mailer\MailerInterface;
+use JardisSupport\Contract\Messaging\MessagingServiceInterface;
 use JardisSupport\Factory\Factory;
 use PDO;
 use Psr\Container\ContainerInterface;
@@ -32,7 +33,7 @@ class DomainKernel implements DomainKernelInterface
 
     /** @param array<string, mixed> $env */
     public function __construct(
-        private readonly string $domainRoot,
+        private readonly string $projectRoot,
         ?ContainerInterface $container = null,
         private readonly ?CacheInterface $cache = null,
         private readonly ?LoggerInterface $logger = null,
@@ -43,28 +44,32 @@ class DomainKernel implements DomainKernelInterface
         private readonly ?MailerInterface $mailer = null,
         private readonly ?FilesystemServiceInterface $filesystem = null,
         array $env = [],
+        private readonly ?MessagingServiceInterface $messaging = null,
     ) {
-        if ($domainRoot === '') {
-            throw new \InvalidArgumentException('domainRoot must not be empty');
+        if ($projectRoot === '') {
+            throw new \InvalidArgumentException('projectRoot must not be empty');
         }
 
         $this->env     = array_change_key_case($env, CASE_LOWER);
         $this->factory = $container instanceof Factory ? $container : new Factory($container);
     }
 
-    public function domainRoot(): string
+    public function projectRoot(): string
     {
-        return $this->domainRoot;
+        return $this->projectRoot;
     }
 
     public function env(string $key): mixed
     {
         $key = strtolower($key);
-        $value = $this->env[$key] ?? $_ENV[$key] ?? null;
+        $value = $this->env[$key] ?? null;
 
         // An explicitly empty value is "missing", not "set to the empty
         // string" — uniform with BuildDomainKernelFromEnv's $envGet (R1.3
-        // rule 1).
+        // rule 1). No global-process-environment fallback (R3, G16): the
+        // kernel is file-pure — the removed fallback looked up a lowercase
+        // key against the process environment, which never matched Docker's
+        // UPPERCASE `environment:` entries (BEFUNDE §1b).
         return $value === '' ? null : $value;
     }
 
@@ -111,5 +116,10 @@ class DomainKernel implements DomainKernelInterface
     public function filesystem(): ?FilesystemServiceInterface
     {
         return $this->filesystem;
+    }
+
+    public function messaging(): ?MessagingServiceInterface
+    {
+        return $this->messaging;
     }
 }
