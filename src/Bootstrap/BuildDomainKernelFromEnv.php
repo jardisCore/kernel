@@ -14,6 +14,7 @@ use JardisCore\Kernel\Bootstrap\Handler\BuildFilesystemFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildHttpClientFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMailerFromEnv;
+use JardisCore\Kernel\Bootstrap\Handler\BuildMessagingFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\ExtractPdoFromConnection;
 use JardisCore\Kernel\DomainKernel;
@@ -76,6 +77,7 @@ final class BuildDomainKernelFromEnv
     private readonly Closure $buildHttpClient;
     private readonly Closure $buildMailer;
     private readonly Closure $buildFilesystem;
+    private readonly Closure $buildMessaging;
 
     public function __construct()
     {
@@ -92,6 +94,7 @@ final class BuildDomainKernelFromEnv
         $this->buildHttpClient = (new BuildHttpClientFromEnv())->__invoke(...);
         $this->buildMailer = (new BuildMailerFromEnv())->__invoke(...);
         $this->buildFilesystem = (new BuildFilesystemFromEnv())->__invoke(...);
+        $this->buildMessaging = (new BuildMessagingFromEnv())->__invoke(...);
     }
 
     public function __invoke(string $projectRoot): DomainKernel
@@ -131,6 +134,7 @@ final class BuildDomainKernelFromEnv
             mailer: ($this->buildMailer)($envGet),
             filesystem: ($this->buildFilesystem)(),
             env: $env,
+            messaging: ($this->buildMessaging)($envGet),
         );
     }
 }

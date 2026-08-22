@@ -9,6 +9,7 @@ use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
 use JardisSupport\Contract\Kernel\DomainKernelInterface;
 use JardisSupport\Contract\Mailer\MailerInterface;
+use JardisSupport\Contract\Messaging\MessagingServiceInterface;
 use JardisSupport\Factory\Factory;
 use PDO;
 use Psr\Container\ContainerInterface;
@@ -43,6 +44,7 @@ class DomainKernel implements DomainKernelInterface
         private readonly ?MailerInterface $mailer = null,
         private readonly ?FilesystemServiceInterface $filesystem = null,
         array $env = [],
+        private readonly ?MessagingServiceInterface $messaging = null,
     ) {
         if ($projectRoot === '') {
             throw new \InvalidArgumentException('projectRoot must not be empty');
@@ -114,5 +116,10 @@ class DomainKernel implements DomainKernelInterface
     public function filesystem(): ?FilesystemServiceInterface
     {
         return $this->filesystem;
+    }
+
+    public function messaging(): ?MessagingServiceInterface
+    {
+        return $this->messaging;
     }
 }

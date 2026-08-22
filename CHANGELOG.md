@@ -3,6 +3,83 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — R4 Messaging (env-konfiguration, P4)
+
+### Added
+
+- `DomainKernel::messaging(): ?MessagingServiceInterface` — a new, twelfth
+  accessor, and `Bootstrap\Handler\BuildMessagingFromEnv`, wired into
+  `BuildDomainKernelFromEnv` as a new constructor parameter appended after
+  `array $env` (BC-safe position). Requires `jardisadapter/messaging`
+  (composer `suggest` + `require-dev`, degrades to `null` via the
+  established `class_exists()` guard when not installed).
+- `MESSAGING_TRANSPORT=kafka|rabbitmq|redis` selects the transport;
+  unset/empty ⇒ `null`; any other value throws
+  `InvalidEnvConfigurationException`. `KAFKA_BROKERS` carries the full
+  comma-separated broker list straight into the adapter's `ConnectionFactory`
+  — no separate `KAFKA_PORT` key, closing the "Kafka-Falle" documented in
+  BEFUNDE.md §5 (`ConnectionFactory::kafka()` ignores a standalone port).
+  `RABBITMQ_HOST/PORT/USER/PASSWORD` for RabbitMQ — `RABBITMQ_HOST` (like
+  `KAFKA_BROKERS`) has no implicit default and is required once the
+  transport is chosen; missing/empty throws `InvalidEnvConfigurationException`
+  at boot. Redis reuses the same
+  `REDIS_*` keys as the cache accessor (one stack, one Redis) but opens its
+  own connection — never the cache/logger's shared client, since `consume()`
+  blocks the connection for as long as it waits. Uses Redis **Streams**, not
+  Pub/Sub — measured directly against a real broker: Pub/Sub only delivers
+  to a subscriber already listening at publish time (no queue behind it),
+  and repeated publish-then-consume roundtrips against phpredis' own
+  subscribe-loop proved unreliable in this environment (sometimes delivered
+  within seconds, sometimes hung indefinitely, identical code). Streams give
+  at-least-once delivery independent of subscriber timing.
+- NEW `docs/env-examples/.env.messaging.example`; `.env.example`'s cascade
+  gained `load?(.env.messaging)`.
+- `support/docker-compose.yml`: `kernel-test-redis` / `kernel-test-rabbitmq`
+  / `kernel-test-kafka` broker services (own container names/host ports,
+  distinct from `adapter/messaging`'s own compose) for the messaging
+  Integration suite; `make start`/`make stop` bring them up/down.
+- `tests/Integration/Bootstrap/BuildMessagingFromEnvTest.php` — publish +
+  consume/read roundtrips against real Docker brokers for all three
+  transports, plus the error-rule and G14 boundary cases.
+
+### Fixed
+
+- **A configured-but-incomplete transport now fails at boot, not on first
+  `publish()`.** The connection object for the chosen transport
+  (`ConnectionFactory::kafka()`/`rabbitMq()`/`redis()`) used to be built only
+  inside a lazy closure — an empty `KAFKA_BROKERS` reached
+  `ConnectionConfig`'s constructor validation ("Host cannot be empty") only
+  once something actually called `publish()`, as a raw, unwrapped
+  `InvalidArgumentException` straight from the adapter, and the `try`/`catch`
+  around the dispatch in `BuildMessagingFromEnv::__invoke()` was dead code —
+  it wrapped a `match()` call whose branches never threw synchronously.
+  Connection construction now happens eagerly in `buildKafka()`/
+  `buildRabbitMq()`/`buildRedis()`, so that `try`/`catch` is live, and
+  `RABBITMQ_HOST`/`REDIS_HOST` lost their `localhost` default for the same
+  reason `KAFKA_BROKERS` never had one — each is explicitly required once
+  its transport is chosen, checked via `IsEnvValueUnset` before the
+  connection is even built. Reachability failures stay lazy (deferred to
+  the adapter's own `connect()` inside `publish()`/`consume()`), only the
+  config *shape* became eager (G5 rule 2 vs. rule 3).
+
+### Known limitations (documented, not fixed here)
+
+- **Kafka consuming is not available through `DomainKernel::messaging()`.**
+  A Kafka consumer needs a consumer group ID; there is no `MESSAGING_*` key
+  for one (deliberately out of scope, G14) — `messaging()->consume()` throws
+  a `RuntimeException` explaining this; `publish()` is unaffected. Build a
+  `ConnectionFactory::kafkaConsumer($brokers, $groupId)` directly instead.
+- **RabbitMQ has no canonical queue-name key.** `messaging()->consume($topic,
+  ...)` uses `$topic` itself as the RabbitMQ queue name, bound under that
+  name to the default topic exchange — the same "topic names the
+  destination" contract Kafka and Redis already give the caller.
+- **Redis consuming uses Streams (`XREAD ... BLOCK`), not Pub/Sub.** phpredis
+  reuses its connection "timeout" as the blocking-command read timeout too;
+  this Handler sets it to `0` (phpredis' "use the ini default" convention,
+  effectively `default_socket_timeout`, ~60s) for the consumer connection so
+  a `block` option shorter than that doesn't spuriously throw a client-side
+  read error before the server's own `BLOCK` window elapses.
+
 ## [Unreleased] — R1 Kernel Bugfixes (env-konfiguration, P2)
 
 Family-grep across all 11 `src/Bootstrap/Handler/*.php` files against the

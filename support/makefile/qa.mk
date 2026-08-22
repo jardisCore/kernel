@@ -1,4 +1,6 @@
 <---qa tools----->: ## -----------------------------------------------------------------------
+# tests/Integration/Bootstrap/BuildMessagingFromEnvTest.php needs real brokers
+# (redis, rabbitmq, kafka) — `make start` first, `make stop` after.
 phpunit: ## Run all tests
 	$(DOCKER_COMPOSE) run --rm --no-deps phpcli vendor/bin/phpunit --bootstrap ./tests/bootstrap.php /app/tests
 .PHONY: phpunit

@@ -24,7 +24,7 @@
     "require": {
         "php": ">=8.2",
         "ext-pdo": "*",
-        "jardissupport/contracts": "dev-develop as 1.2.0",
+        "jardissupport/contracts": "dev-develop as 2.0.0",
         "jardissupport/classversion": "^1.0",
         "jardissupport/dotenv": "^1.2",
         "jardissupport/factory": "^1.0",
@@ -42,7 +42,10 @@
         "jardisadapter/http": "For PSR-18 HTTP client with handler pipeline via the Bootstrap-Packer",
         "jardisadapter/logger": "For log handlers (File, Console, Redis, Database, etc.) via the Bootstrap-Packer",
         "jardisadapter/mailer": "For SMTP mailer with STARTTLS, AUTH, HTML/text, attachments via the Bootstrap-Packer",
-        "ext-redis": "For Redis-based caching and logging via the Bootstrap-Packer"
+        "jardisadapter/messaging": "For Kafka/RabbitMQ/Redis messaging via the Bootstrap-Packer",
+        "ext-redis": "For Redis-based caching, logging and messaging via the Bootstrap-Packer",
+        "ext-rdkafka": "For Kafka messaging via the Bootstrap-Packer",
+        "ext-amqp": "For RabbitMQ messaging via the Bootstrap-Packer"
     },
     "require-dev": {
         "phpunit/phpunit": "11.5.55",
@@ -55,7 +58,11 @@
         "jardisadapter/filesystem": "^1.0",
         "jardisadapter/http": "^1.0",
         "jardisadapter/logger": "^1.0",
-        "jardisadapter/mailer": "^1.0"
+        "jardisadapter/mailer": "^1.0",
+        "jardisadapter/messaging": "^1.0",
+        "ext-redis": "*",
+        "ext-rdkafka": "*",
+        "ext-amqp": "*"
     },
     "autoload": {
         "psr-4": {

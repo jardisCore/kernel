@@ -37,6 +37,7 @@ counts.
 | `.env.logger.example` | `BuildLoggerFromEnv` (requires `jardisadapter/logger`) | `LOG_HANDLERS` |
 | `.env.http.example` | `BuildHttpClientFromEnv` (requires `jardisadapter/http`) | none — works with zero config once the adapter is installed |
 | `.env.mail.example` | `BuildMailerFromEnv` (requires `jardisadapter/mailer`) | `MAIL_HOST` |
+| `.env.messaging.example` | `BuildMessagingFromEnv` (requires `jardisadapter/messaging`) | `MESSAGING_TRANSPORT` |
 
 Four of the eleven Bootstrap handlers need no ENV at all and have no template
 here: `BuildFilesystemFromEnv` (stateless factory) and
@@ -160,6 +161,34 @@ No key here is required — the client builds with zero config once
 | `MAIL_FROM_NAME` | `null` | |
 
 Code: `src/Bootstrap/Handler/BuildMailerFromEnv.php:24-51`.
+
+### `BuildMessagingFromEnv` (`.env.messaging.example`, requires `jardisadapter/messaging`)
+
+| Key | Default | Notes |
+|---|---|---|
+| `MESSAGING_TRANSPORT` | — | unset/empty ⇒ `null` (no messaging at all); `kafka` \| `rabbitmq` \| `redis`; any other value throws `InvalidEnvConfigurationException` |
+| `KAFKA_BROKERS` | — | kafka only; **required** once `MESSAGING_TRANSPORT=kafka` — missing/empty throws `InvalidEnvConfigurationException` at boot; comma-separated `host:port` list, passed unchanged into the factory's host field — no separate `KAFKA_PORT` key (closes the Kafka-Falle, BEFUNDE.md §5) |
+| `KAFKA_USER` / `KAFKA_PASSWORD` | `null` | kafka only; SASL_SSL/PLAIN when both are set |
+| `RABBITMQ_HOST` | — | rabbitmq only; **required** once `MESSAGING_TRANSPORT=rabbitmq` — no implicit `localhost`, missing/empty throws `InvalidEnvConfigurationException` at boot |
+| `RABBITMQ_PORT` | `5672` | rabbitmq only |
+| `RABBITMQ_USER` | `guest` | rabbitmq only |
+| `RABBITMQ_PASSWORD` | `guest` | rabbitmq only |
+| `REDIS_HOST` | — | redis only; same key as `.env.redis.example`, but its own connection — never the cache/logger's shared one (a blocking `consume()` call would starve it); **required** once `MESSAGING_TRANSPORT=redis` — no implicit `localhost`, missing/empty throws `InvalidEnvConfigurationException` at boot |
+| `REDIS_PORT` | `6379` | redis only |
+| `REDIS_PASSWORD` | — | redis only |
+
+All three "required" fields fail at **boot** (packing the kernel), not on
+the first `publish()`/`consume()` call — a configured transport with a
+missing identifying field is treated as invalid config (G5 rule 2), not as
+"unconfigured". An unreachable-but-well-formed broker is still a lazy
+failure, deferred to first use, same as the DB/Redis cache accessors.
+
+Kafka consuming needs a consumer group ID, which has no `MESSAGING_*` key (a
+deliberate scope boundary, not an oversight) — `messaging()->consume()`
+throws a `RuntimeException` for kafka; `publish()` is unaffected. RabbitMQ
+has no canonical queue-name key either: `messaging()->consume($topic, ...)`
+uses `$topic` itself as the queue name. Code:
+`src/Bootstrap/Handler/BuildMessagingFromEnv.php`.
 
 ### No ENV at all
 

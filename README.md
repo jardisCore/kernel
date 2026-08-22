@@ -119,21 +119,22 @@ an empty or freshly created directory just means "nothing configured yet",
 same as any other missing ENV key. The packer only throws when creating the
 directory itself fails (permissions, read-only filesystem).
 
-`BuildDomainKernelFromEnv` wires eight services (cache, logger, event
+`BuildDomainKernelFromEnv` wires nine services (cache, logger, event
 dispatcher + listener registry, HTTP client, DB connection, mailer,
-filesystem) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
-`REDIS_*` ENV keys — see [`docs/env-examples/README.md`](docs/env-examples/README.md)
-for the full key reference. The resulting packed `DomainKernel` exposes
-eleven accessors in total (the eight services above, plus `projectRoot()`,
-`env()`, and `container()`, which are not ENV-wired services — see the
-accessor table below). `projectRoot()` returns the project root passed to
-the packer, not the internal `config/env` path it reads from. Every adapter
-it can use (`jardisadapter/cache`, `jardisadapter/dbconnection`,
+filesystem, messaging) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
+`REDIS_*` / `MESSAGING_*` / `KAFKA_*` / `RABBITMQ_*` ENV keys — see
+[`docs/env-examples/README.md`](docs/env-examples/README.md) for the full key
+reference. The resulting packed `DomainKernel` exposes twelve accessors in
+total (the nine services above, plus `projectRoot()`, `env()`, and
+`container()`, which are not ENV-wired services — see the accessor table
+below). `projectRoot()` returns the project root passed to the packer, not
+the internal `config/env` path it reads from. Every adapter it can use
+(`jardisadapter/cache`, `jardisadapter/dbconnection`,
 `jardisadapter/eventdispatcher`, `jardisadapter/filesystem`,
-`jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`) is a
-composer `suggest` — not installed, or not configured, means that accessor
-stays `null` on the packed Koffer. Nothing throws for a missing optional
-service.
+`jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`,
+`jardisadapter/messaging`) is a composer `suggest` — not installed, or not
+configured, means that accessor stays `null` on the packed Koffer. Nothing
+throws for a missing optional service.
 
 ---
 
@@ -152,6 +153,7 @@ $kernel = new DomainKernel(
     mailer: $mailer,                    // ?MailerInterface
     filesystem: $filesystemService,     // ?FilesystemServiceInterface
     env: ['db_host' => 'localhost'],    // array — private ENV, file values only
+    messaging: $messagingService,       // ?MessagingServiceInterface
 );
 ```
 
@@ -168,6 +170,7 @@ $kernel = new DomainKernel(
 | `dbConnection()` | `ConnectionPoolInterface\|PDO\|null` |
 | `mailer()` | `?MailerInterface` |
 | `filesystem()` | `?FilesystemServiceInterface` |
+| `messaging()` | `?MessagingServiceInterface` |
 
 `DomainKernel` builds nothing and reads no ENV itself — it is a pure,
 immutable consumer. All ENV/service-assembly is `Bootstrap\BuildDomainKernelFromEnv`'s
@@ -290,6 +293,7 @@ BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> Koffer.
     ├── Handler\BuildHttpClientFromEnv
     ├── Handler\BuildMailerFromEnv
     ├── Handler\BuildFilesystemFromEnv
+    ├── Handler\BuildMessagingFromEnv               kafka | rabbitmq | redis (R4)
     ├── Handler\NormalizeEnvBool                   shared ENV-to-bool unit (R1)
     ├── Handler\IsEnvValueUnset                    shared "is this key configured" check (R1)
     ├── Data\CredentialEnvKeySuffixes               *_PASSWORD | *_USER | *_SECRET | *_TOKEN (R1)
@@ -309,7 +313,8 @@ DomainKernel                    Immutable. Constructor injection only.
     ├── httpClient()            ?ClientInterface
     ├── dbConnection()          ConnectionPoolInterface | PDO | null
     ├── mailer()                ?MailerInterface
-    └── filesystem()            ?FilesystemServiceInterface
+    ├── filesystem()            ?FilesystemServiceInterface
+    └── messaging()             ?MessagingServiceInterface
 ```
 
 Everything downstream of the Koffer — the generated `{Domain}Context` Naht
