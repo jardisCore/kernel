@@ -20,12 +20,6 @@ services:
     working_dir: /app
     volumes:
       - ../:/app
-      # Temporary (P3, env-konfiguration): composer path-repository onto
-      # contracts-develop so kernel QA runs against the unreleased Kernel
-      # contract changes (projectRoot rename) before the bundled P4 release.
-      # Remove together with composer.json's "repositories" entry before
-      # that release.
-      - ../../../support/contracts:/support/contracts:ro
     ports:
       - ${XDEBUG_CLIENT_PORT:-9003}:9003
 

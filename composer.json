@@ -12,19 +12,10 @@
             "email": "jardisDev@headgent.com"
         }
     ],
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../../support/contracts",
-            "options": {
-                "symlink": true
-            }
-        }
-    ],
     "require": {
         "php": ">=8.2",
         "ext-pdo": "*",
-        "jardissupport/contracts": "dev-develop as 2.0.0",
+        "jardissupport/contracts": "^2.0",
         "jardissupport/classversion": "^1.0",
         "jardissupport/dotenv": "^1.2",
         "jardissupport/factory": "^1.0",
