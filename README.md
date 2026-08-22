@@ -15,7 +15,7 @@
 > Part of **[Jardis](https://jardis.io)** — the Domain-Driven Design platform for PHP. You model your domain; Jardis generates the production-ready hexagonal code (DTOs, Command/Query handlers, repositories, persistence). This package is the runtime the generated code runs on.
 
 **The Application-side offer for Jardis-generated domains.** One immutable
-infrastructure holder (`DomainKernel`, the "Koffer") plus an optional
+infrastructure holder (`DomainKernel`) plus an optional
 ENV-driven packer (`BuildDomainKernelFromEnv`) — you inject the kernel into
 the generated domain facade's constructor, nothing more.
 
@@ -29,18 +29,18 @@ package is one way to satisfy those interfaces at runtime — a minimal,
 adapter-agnostic infrastructure bundle.
 
 - **`DomainKernelInterface` in, done.** Every generated `{Domain}Context` and
-  BC facade takes the Koffer via constructor injection — nothing else to wire.
+  BC facade takes the DomainKernel via constructor injection — nothing else to wire.
 - **Plain PDO works.** Pass a PDO, get going. Need connection pooling later?
   Swap in a ConnectionPool. Same `dbConnection()` accessor.
-- **Every service is optional.** Nullable by design — a Koffer without a
-  logger is a perfectly valid Koffer; the domain checks and acts accordingly.
+- **Every service is optional.** Nullable by design — a DomainKernel without a
+  logger is a perfectly valid DomainKernel; the domain checks and acts accordingly.
 - **ClassVersion built in.** Versioned classes via namespace injection is a
-  Support-package concern (`jardissupport/classversion`); the Koffer just
+  Support-package concern (`jardissupport/classversion`); the DomainKernel just
   carries a container that resolves it.
 - **Immutable kernel.** Once built, nothing changes. Safe for application
   servers, workers, long-running processes.
 - **ENV wiring is optional, not assumed.** `BuildDomainKernelFromEnv` packs a
-  Koffer from cascading `.env` files if you want that; build your own
+  DomainKernel from cascading `.env` files if you want that; build your own
   `DomainKernel` directly if you don't.
 
 ---
@@ -55,9 +55,9 @@ composer require jardiscore/kernel
 
 ## Quickstart
 
-### 1. Build a Koffer
+### 1. Build a DomainKernel
 
-The simplest Koffer — no services at all:
+The simplest DomainKernel — no services at all:
 
 ```php
 use JardisCore\Kernel\DomainKernel;
@@ -65,7 +65,7 @@ use JardisCore\Kernel\DomainKernel;
 $kernel = new DomainKernel(projectRoot: __DIR__);
 ```
 
-A Koffer with a database connection — plain PDO is enough:
+A DomainKernel with a database connection — plain PDO is enough:
 
 ```php
 $kernel = new DomainKernel(
@@ -76,7 +76,7 @@ $kernel = new DomainKernel(
 
 ### 2. Hand it to the generated domain facade
 
-Jardis-generated domains take the Koffer via constructor injection — nothing
+Jardis-generated domains take the DomainKernel via constructor injection — nothing
 extends `DomainApp` anymore (Kernel-Entkopplung, see "Constitutional Note"
 below):
 
@@ -93,12 +93,12 @@ The generated `{Domain}Context` base class (the Naht, `handle()`/`context()`)
 and the `ContextResponse` → `DomainResponse` response pipeline are themselves
 part of what Jardis generates per domain — see the `platform-implementation`
 skill / `docs.jardis.io` for the generated-code contract. This package only
-provides the Koffer these generated classes consume.
+provides the DomainKernel these generated classes consume.
 
-### 3. Or: pack the Koffer from ENV
+### 3. Or: pack the DomainKernel from ENV
 
 For projects that want zero manual service wiring, `BuildDomainKernelFromEnv`
-assembles a Koffer from a cascading `.env` tree (templates:
+assembles a DomainKernel from a cascading `.env` tree (templates:
 [`docs/env-examples/`](docs/env-examples/)). It takes the **project root**
 (the git-clone target), not a config path — the convention is a fixed
 `config/env` subdirectory, one project layout every Jardis project shares
@@ -133,12 +133,12 @@ the internal `config/env` path it reads from. Every adapter it can use
 `jardisadapter/eventdispatcher`, `jardisadapter/filesystem`,
 `jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`,
 `jardisadapter/messaging`) is a composer `suggest` — not installed, or not
-configured, means that accessor stays `null` on the packed Koffer. Nothing
+configured, means that accessor stays `null` on the packed DomainKernel. Nothing
 throws for a missing optional service.
 
 ---
 
-## DomainKernel — the Koffer
+## DomainKernel — the DomainKernel
 
 ```php
 $kernel = new DomainKernel(
@@ -179,7 +179,7 @@ job (or your own equivalent).
 `eventListenerRegistry()` exists so a generated `{Agg}EventRouter` can
 register itself on the domain facade's constructor without any Application
 wiring: a fresh build carries new routers automatically. Without a registry in
-the Koffer, event routing simply stays inactive — no error.
+the DomainKernel, event routing simply stays inactive — no error.
 
 ---
 
@@ -192,13 +192,13 @@ now an explicit choice, not implicit global state:
 ```php
 $kernel = (new BuildDomainKernelFromEnv())(__DIR__);   // project root, reads config/env
 
-$ecommerce = new Ecommerce($kernel);   // same Koffer instance
-$billing   = new Billing($kernel);     // same Koffer instance -> same connection, cache, ...
+$ecommerce = new Ecommerce($kernel);   // same DomainKernel instance
+$billing   = new Billing($kernel);     // same DomainKernel instance -> same connection, cache, ...
 ```
 
-A domain that needs its own services builds its own Koffer from its own
+A domain that needs its own services builds its own DomainKernel from its own
 project root instead of sharing one — one stack, one technical environment
-per Koffer (`ein-stack-eine-technische-umgebung`); two databases means two
+per DomainKernel (`ein-stack-eine-technische-umgebung`); two databases means two
 stacks, not two config directories inside one:
 
 ```php
@@ -282,7 +282,7 @@ their handler as the literal string instead of a cast `bool`/`int`
 ## Architecture
 
 ```
-BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> Koffer.
+BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> DomainKernel.
     ├── Handler\BuildConnectionFromEnv            mysql | pgsql | sqlite (+ pool)
     ├── Handler\BuildRedisFromEnv                 shared fan-out (-> cache + logger)
     ├── Handler\ExtractPdoFromConnection           feeds the cache "db" layer
@@ -317,7 +317,7 @@ DomainKernel                    Immutable. Constructor injection only.
     └── messaging()             ?MessagingServiceInterface
 ```
 
-Everything downstream of the Koffer — the generated `{Domain}Context` Naht
+Everything downstream of the DomainKernel — the generated `{Domain}Context` Naht
 (`handle()`/`context()`), `resource()`/`payload()`/`version()`/`result()`, and
 the `ContextResponse` → `DomainResponseTransformer` → `DomainResponse`
 pipeline — is generated per domain by Jardis itself (Kernel-Entkopplung: the
@@ -332,7 +332,7 @@ generated-code contract.
 As of the Kernel-Entkopplung redesign, `jardiscore/kernel` sits **outside** the hexagonal
 inner rings — it is Application-layer, not Domain-layer. Concretely:
 
-- The Koffer core (`DomainKernel` + the contract interfaces it implements)
+- The DomainKernel core (`DomainKernel` + the contract interfaces it implements)
   stays adapter-free: only `jardissupport/contracts` + PSR interfaces.
 - The `Bootstrap\` sub-namespace legitimately imports concrete adapter
   packages (`jardisadapter/*`) — that is Application wiring, not Domain code,
@@ -342,8 +342,8 @@ inner rings — it is Application-layer, not Domain-layer. Concretely:
 
 This mirrors the project-wide rule ("Composition over Inheritance", flat
 extends only inside generated code) applied one layer up: the Application
-composes the Koffer from adapters; the Domain composes its behaviour from the
-Koffer.
+composes the DomainKernel from adapters; the Domain composes its behaviour from the
+DomainKernel.
 
 ---
 
