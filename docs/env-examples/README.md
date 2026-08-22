@@ -22,7 +22,7 @@ kernel does not build). The keys below are the ones the eleven
 `BuildConnectionPoolConfigFromEnv` joined for the `DB_POOL_*` keys). That
 this now numerically matches the packed `DomainKernel`'s **accessor** count
 (`grep -cE "public function [a-z]" src/DomainKernel.php` → 11) is
-coincidence — a different layer (the Koffer's read side) from the
+coincidence — a different layer (the DomainKernel's read side) from the
 Bootstrap-Packer's build side documented here. Don't conflate the two
 counts.
 
@@ -49,7 +49,7 @@ it's a different case (not adapter-gated, a pure data-transform closure).
 
 Every value here is optional — an unconfigured service resolves to `null` on
 the packed `DomainKernel` (see "Two states, not three" below). See
-`README.md` (package root) section "DomainKernel — the Koffer" for the packed
+`README.md` (package root) section "DomainKernel — the DomainKernel" for the packed
 accessor list.
 
 ## ENV keys reference
