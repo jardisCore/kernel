@@ -232,8 +232,34 @@ to the writer). Setting none of them keeps the adapter defaults — the pool is
 built exactly as before; setting any builds an explicit config where only the
 set keys deviate. `DB_POOL_STICKY_WRITER` requires
 `jardisadapter/dbconnection` >= 1.1.0 — with an older version installed the
-pool build fails and the existing fallback applies: a plain `PDO` on
-`DB_HOST` plus an `error_log` notice.
+pool build fails and falls back to a plain `PDO` attempt on `DB_HOST`, logged
+via `error_log`. An invalid `DB_POOL_LOAD_BALANCING_STRATEGY`, or that plain
+`PDO` fallback also failing, now throws `InvalidEnvConfigurationException`
+instead of degrading to `null` (R1 — see "Error Handling" below).
+
+---
+
+## Error Handling (ENV Bootstrap)
+
+`BuildDomainKernelFromEnv` and its Handlers follow four rules for every ENV
+key they read:
+
+| State | Result |
+|-------|--------|
+| Key not set, or set to an empty value (`KEY=`) | `null` — the service degrades gracefully |
+| Key set to an unparsable/invalid value (e.g. `HTTP_VERIFY_SSL=maybe`, an unknown `DB_POOL_LOAD_BALANCING_STRATEGY`) | throws `JardisCore\Kernel\Exception\InvalidEnvConfigurationException` |
+| Key set, service configured, but unreachable (DB/Redis connection fails) | throws `InvalidEnvConfigurationException` |
+| An ENV key the packer does not recognize | ignored |
+
+Boolean ENV keys (`HTTP_VERIFY_SSL`, `DB_POOL_VALIDATE_CONNECTIONS`,
+`DB_POOL_STICKY_WRITER`) go through one shared unit,
+`Bootstrap\Handler\NormalizeEnvBool` — DotEnv casts a literal `true`/`false`
+to `bool` and a bare `1`/`0` to `int`, never a raw string, so a
+`$value === 'true'` comparison silently misreads both (the bug `NormalizeEnvBool`
+replaces). Credential-shaped keys (`*_PASSWORD`, `*_USER`, `*_SECRET`,
+`*_TOKEN`) are registered as DotEnv raw keys before loading — they reach
+their handler as the literal string instead of a cast `bool`/`int`
+(`DB_PASSWORD=false` stays `'false'`, not `bool(false)`).
 
 ---
 
@@ -251,6 +277,9 @@ BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> Koffer.
     ├── Handler\BuildHttpClientFromEnv
     ├── Handler\BuildMailerFromEnv
     ├── Handler\BuildFilesystemFromEnv
+    ├── Handler\NormalizeEnvBool                   shared ENV-to-bool unit (R1)
+    ├── Handler\IsEnvValueUnset                    shared "is this key configured" check (R1)
+    ├── Data\CredentialEnvKeySuffixes               *_PASSWORD | *_USER | *_SECRET | *_TOKEN (R1)
     ├── Data\CacheLayer                            memory | apcu | redis | db (4 cases)
     └── Data\LogHandler                            file | console | errorlog | syslog |
                                                      browserconsole | redis | slack | teams |
@@ -308,7 +337,7 @@ Koffer.
 | `jardissupport/contracts` | Interface contracts (`DomainKernelInterface`, `EventListenerRegistryInterface`, etc.) |
 | `jardissupport/classversion` | Versioned class resolution via namespace injection |
 | `jardissupport/factory` | PSR-11 Container + class instantiation |
-| `jardissupport/dotenv` | Cascading `.env` loading — used by `BuildDomainKernelFromEnv` |
+| `jardissupport/dotenv` (^1.2) | Cascading `.env` loading — used by `BuildDomainKernelFromEnv`; `^1.2` for `addRawKeys()` (credential cast exemption) |
 
 **Optional (composer suggest, used by `Bootstrap\BuildDomainKernelFromEnv`):**
 

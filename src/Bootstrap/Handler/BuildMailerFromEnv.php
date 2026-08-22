@@ -33,7 +33,7 @@ final class BuildMailerFromEnv
         }
 
         $host = $env('mail_host');
-        if ($host === null) {
+        if ((new IsEnvValueUnset())($host)) {
             return null;
         }
 

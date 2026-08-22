@@ -184,6 +184,26 @@ class DomainKernelTest extends TestCase
         unset($_ENV['test_key']);
     }
 
+    public function testEnvMapsEmptyStringToNull(): void
+    {
+        // R1.3 rule 1 (G5): an explicitly empty value (KEY=) is "missing",
+        // not "set to the empty string" — uniform with the Bootstrap-Packer's
+        // $envGet (BuildDomainKernelFromEnv).
+        $kernel = new DomainKernel('/app/src', env: ['db_host' => '']);
+
+        $this->assertNull($kernel->env('db_host'));
+    }
+
+    public function testEnvMapsEmptyStringFromGlobalEnvToNullToo(): void
+    {
+        $_ENV['test_empty_key'] = '';
+        $kernel = new DomainKernel('/app/src');
+
+        $this->assertNull($kernel->env('test_empty_key'));
+
+        unset($_ENV['test_empty_key']);
+    }
+
     public function testEmptyDomainRootThrowsException(): void
     {
         $this->expectException(\InvalidArgumentException::class);
