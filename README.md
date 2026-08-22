@@ -62,14 +62,14 @@ The simplest Koffer — no services at all:
 ```php
 use JardisCore\Kernel\DomainKernel;
 
-$kernel = new DomainKernel(domainRoot: __DIR__);
+$kernel = new DomainKernel(projectRoot: __DIR__);
 ```
 
 A Koffer with a database connection — plain PDO is enough:
 
 ```php
 $kernel = new DomainKernel(
-    domainRoot: __DIR__,
+    projectRoot: __DIR__,
     connection: new PDO('mysql:host=localhost;dbname=shop', 'root', ''),
 );
 ```
@@ -99,28 +99,40 @@ provides the Koffer these generated classes consume.
 
 For projects that want zero manual service wiring, `BuildDomainKernelFromEnv`
 assembles a Koffer from a cascading `.env` tree (templates:
-[`docs/env-examples/`](docs/env-examples/)):
+[`docs/env-examples/`](docs/env-examples/)). It takes the **project root**
+(the git-clone target), not a config path — the convention is a fixed
+`config/env` subdirectory, one project layout every Jardis project shares
+(see the `projekt-layout-konvention` Wissensbasis entry):
 
 ```php
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 
 $packer = new BuildDomainKernelFromEnv();
-$kernel = $packer(__DIR__ . '/config');   // reads config/.env (+ cascade)
+$kernel = $packer(__DIR__);   // reads <projectRoot>/config/env (+ cascade)
 
 $ecommerce = new Ecommerce($kernel);
 ```
 
-`BuildDomainKernelFromEnv` wires eight services (cache, logger, event
+If `<projectRoot>/config/env` does not exist yet, the packer creates it
+(`mkdir`, race-safe against a parallel fpm cold start) rather than throwing —
+an empty or freshly created directory just means "nothing configured yet",
+same as any other missing ENV key. The packer only throws when creating the
+directory itself fails (permissions, read-only filesystem).
+
+`BuildDomainKernelFromEnv` wires nine services (cache, logger, event
 dispatcher + listener registry, HTTP client, DB connection, mailer,
-filesystem) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
-`REDIS_*` ENV keys — see [`docs/env-examples/README.md`](docs/env-examples/README.md)
-for the full key reference. The resulting packed `DomainKernel` exposes
-eleven accessors in total (the eight services above, plus `domainRoot()`,
-`env()`, and `container()`, which are not ENV-wired services — see the
-accessor table below). Every adapter it can use (`jardisadapter/cache`,
-`jardisadapter/dbconnection`, `jardisadapter/eventdispatcher`,
-`jardisadapter/filesystem`, `jardisadapter/http`, `jardisadapter/logger`,
-`jardisadapter/mailer`) is a composer `suggest` — not installed, or not
+filesystem, messaging) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
+`REDIS_*` / `MESSAGING_*` / `KAFKA_*` / `RABBITMQ_*` ENV keys — see
+[`docs/env-examples/README.md`](docs/env-examples/README.md) for the full key
+reference. The resulting packed `DomainKernel` exposes twelve accessors in
+total (the nine services above, plus `projectRoot()`, `env()`, and
+`container()`, which are not ENV-wired services — see the accessor table
+below). `projectRoot()` returns the project root passed to the packer, not
+the internal `config/env` path it reads from. Every adapter it can use
+(`jardisadapter/cache`, `jardisadapter/dbconnection`,
+`jardisadapter/eventdispatcher`, `jardisadapter/filesystem`,
+`jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`,
+`jardisadapter/messaging`) is a composer `suggest` — not installed, or not
 configured, means that accessor stays `null` on the packed Koffer. Nothing
 throws for a missing optional service.
 
@@ -130,7 +142,7 @@ throws for a missing optional service.
 
 ```php
 $kernel = new DomainKernel(
-    domainRoot: '/path/to/config',      // required
+    projectRoot: '/path/to/project',    // required
     container: $factory,                // ?ContainerInterface
     cache: $cache,                      // ?CacheInterface
     logger: $logger,                    // ?LoggerInterface
@@ -140,14 +152,15 @@ $kernel = new DomainKernel(
     connection: $pool,                  // ConnectionPoolInterface|PDO|null
     mailer: $mailer,                    // ?MailerInterface
     filesystem: $filesystemService,     // ?FilesystemServiceInterface
-    env: ['db_host' => 'localhost'],    // array — private ENV, takes precedence over $_ENV
+    env: ['db_host' => 'localhost'],    // array — private ENV, file values only
+    messaging: $messagingService,       // ?MessagingServiceInterface
 );
 ```
 
 | Method | Return |
 |--------|--------|
-| `domainRoot()` | `string` |
-| `env(string $key)` | `mixed` — case-insensitive; private ENV > `$_ENV` |
+| `projectRoot()` | `string` — root of the project the kernel serves; multiple domains in one project share it |
+| `env(string $key)` | `mixed` — case-insensitive; private ENV only, no global fallback |
 | `container()` | `Factory` — always wraps the injected container |
 | `cache()` | `?CacheInterface` |
 | `logger()` | `?LoggerInterface` |
@@ -157,6 +170,7 @@ $kernel = new DomainKernel(
 | `dbConnection()` | `ConnectionPoolInterface\|PDO\|null` |
 | `mailer()` | `?MailerInterface` |
 | `filesystem()` | `?FilesystemServiceInterface` |
+| `messaging()` | `?MessagingServiceInterface` |
 
 `DomainKernel` builds nothing and reads no ENV itself — it is a pure,
 immutable consumer. All ENV/service-assembly is `Bootstrap\BuildDomainKernelFromEnv`'s
@@ -176,17 +190,19 @@ first-write-wins `ServiceRegistry`, G11) — sharing services across domains is
 now an explicit choice, not implicit global state:
 
 ```php
-$kernel = (new BuildDomainKernelFromEnv())(__DIR__ . '/config');
+$kernel = (new BuildDomainKernelFromEnv())(__DIR__);   // project root, reads config/env
 
 $ecommerce = new Ecommerce($kernel);   // same Koffer instance
 $billing   = new Billing($kernel);     // same Koffer instance -> same connection, cache, ...
 ```
 
-A domain that needs its own services builds its own Koffer instead of
-sharing one:
+A domain that needs its own services builds its own Koffer from its own
+project root instead of sharing one — one stack, one technical environment
+per Koffer (`ein-stack-eine-technische-umgebung`); two databases means two
+stacks, not two config directories inside one:
 
 ```php
-$billingKernel = (new BuildDomainKernelFromEnv())(__DIR__ . '/config-billing');
+$billingKernel = (new BuildDomainKernelFromEnv())('/path/to/billing-project');
 $billing = new Billing($billingKernel);
 ```
 
@@ -206,7 +222,7 @@ use JardisAdapter\DbConnection\Factory\ConnectionFactory;
 $factory = new ConnectionFactory();
 
 $kernel = new DomainKernel(
-    domainRoot: __DIR__,
+    projectRoot: __DIR__,
     connection: new ConnectionPool(
         writer: $factory->mysql('primary', 'user', 'pass', 'shop'),
         readers: [
@@ -277,6 +293,7 @@ BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> Koffer.
     ├── Handler\BuildHttpClientFromEnv
     ├── Handler\BuildMailerFromEnv
     ├── Handler\BuildFilesystemFromEnv
+    ├── Handler\BuildMessagingFromEnv               kafka | rabbitmq | redis (R4)
     ├── Handler\NormalizeEnvBool                   shared ENV-to-bool unit (R1)
     ├── Handler\IsEnvValueUnset                    shared "is this key configured" check (R1)
     ├── Data\CredentialEnvKeySuffixes               *_PASSWORD | *_USER | *_SECRET | *_TOKEN (R1)
@@ -286,7 +303,8 @@ BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> Koffer.
                                                      loki | webhook | null (11 cases)
 
 DomainKernel                    Immutable. Constructor injection only.
-    ├── env(key)                Case-insensitive. Private > $_ENV
+    ├── projectRoot()           Root of the project this kernel serves.
+    ├── env(key)                Case-insensitive. File-only, no global fallback.
     ├── container()             Always Factory. Wraps external container.
     ├── cache()                 ?CacheInterface
     ├── logger()                ?LoggerInterface
@@ -295,7 +313,8 @@ DomainKernel                    Immutable. Constructor injection only.
     ├── httpClient()            ?ClientInterface
     ├── dbConnection()          ConnectionPoolInterface | PDO | null
     ├── mailer()                ?MailerInterface
-    └── filesystem()            ?FilesystemServiceInterface
+    ├── filesystem()            ?FilesystemServiceInterface
+    └── messaging()             ?MessagingServiceInterface
 ```
 
 Everything downstream of the Koffer — the generated `{Domain}Context` Naht

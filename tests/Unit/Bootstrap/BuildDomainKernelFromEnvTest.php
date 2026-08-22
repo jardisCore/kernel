@@ -19,7 +19,8 @@ use Psr\SimpleCache\CacheInterface;
 /**
  * Integration tests for BuildDomainKernelFromEnv — the Bootstrap-Packer (D4).
  *
- * Uses a config-cascade fixture (tests/Fixtures/Bootstrap/FullConfig/) that
+ * Uses a project-root fixture (tests/Fixtures/ProjectRoot/FullConfig/, its
+ * `.env` cascade nested under `config/env/` per the R2 convention) that
  * exercises DotEnv's two-stage cascade (load()-included files + an
  * APP_ENV-specific overlay) — no Docker/real infrastructure required
  * (PRD AC3, Plan P2 AK): DB via SQLite in-memory, no Redis/Mailer configured.
@@ -28,15 +29,18 @@ final class BuildDomainKernelFromEnvTest extends TestCase
 {
     private function fixturePath(string $name = 'FullConfig'): string
     {
-        return __DIR__ . '/../../Fixtures/Bootstrap/' . $name;
+        return __DIR__ . '/../../Fixtures/ProjectRoot/' . $name;
     }
 
     public function testPacksKernelWithAllElevenAccessorsFromConfigCascade(): void
     {
         $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath());
 
-        // 1: domainRoot() — the packer's configPath doubles as domainRoot.
-        self::assertSame($this->fixturePath(), $kernel->domainRoot());
+        // 1: projectRoot() — the packer returns the project root passed in,
+        // NOT the internal config/env path it derives and reads from (R2,
+        // G1/G8 — resolves the prior accessor-vs-configPath docblock
+        // contradiction, BEFUNDE §3).
+        self::assertSame($this->fixturePath(), $kernel->projectRoot());
 
         // 2: env() — proves the two-stage cascade actually applied: the
         // APP_ENV overlay (.env.test) overrides the load()-included value
@@ -100,22 +104,30 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         self::assertSame('hello', $cache->get('bootstrap_test_key'));
     }
 
-    public function testMissingConfigDirectoryYieldsEmptyEnvAndGracefulNulls(): void
+    public function testMissingConfigDirectoryIsCreatedAndYieldsEmptyEnvAndGracefulNulls(): void
     {
-        $emptyPath = sys_get_temp_dir() . '/jardis-kernel-bootstrap-empty-' . uniqid('', true);
-        mkdir($emptyPath);
+        // R2 (G1): the packer takes the PROJECT root, not the config path —
+        // a fresh project root has no config/env yet, so the packer creates
+        // it itself (race-safe mkdir) instead of throwing or falling back.
+        $projectRoot = sys_get_temp_dir() . '/jardis-kernel-bootstrap-empty-' . uniqid('', true);
+        mkdir($projectRoot);
 
         try {
-            $kernel = (new BuildDomainKernelFromEnv())($emptyPath);
+            self::assertDirectoryDoesNotExist($projectRoot . '/config/env');
 
-            self::assertSame($emptyPath, $kernel->domainRoot());
+            $kernel = (new BuildDomainKernelFromEnv())($projectRoot);
+
+            self::assertDirectoryExists(
+                $projectRoot . '/config/env',
+                'the packer must create the missing config/env directory (G1)',
+            );
+            self::assertSame($projectRoot, $kernel->projectRoot());
             self::assertNull($kernel->env('log_handlers'));
 
-            // No DB_HOST, default driver mysql -> no connection attempted, no exception.
+            // Freshly created, empty config/env -> "not configured"
+            // everywhere, same as a pre-existing empty directory (G26).
             self::assertNull($kernel->dbConnection());
-            // No LOG_HANDLERS -> logger stays null.
             self::assertNull($kernel->logger());
-            // No MAIL_HOST -> mailer stays null.
             self::assertNull($kernel->mailer());
 
             // Adapter-driven services with no ENV guard stay available regardless.
@@ -125,7 +137,58 @@ final class BuildDomainKernelFromEnvTest extends TestCase
             self::assertInstanceOf(ClientInterface::class, $kernel->httpClient());
             self::assertInstanceOf(FilesystemServiceInterface::class, $kernel->filesystem());
         } finally {
-            rmdir($emptyPath);
+            @rmdir($projectRoot . '/config/env');
+            @rmdir($projectRoot . '/config');
+            @rmdir($projectRoot);
+        }
+    }
+
+    public function testExistingConfigDirectoryIsUsedAsIsWithoutMkdir(): void
+    {
+        // "Beide Pfadlagen" (AK3.1): config/env already exists (here: empty)
+        // — the packer must not need to create it, and must behave exactly
+        // like the auto-created case (G26).
+        $projectRoot = sys_get_temp_dir() . '/jardis-kernel-bootstrap-preexisting-' . uniqid('', true);
+        mkdir($projectRoot . '/config/env', 0775, true);
+
+        try {
+            $kernel = (new BuildDomainKernelFromEnv())($projectRoot);
+
+            self::assertSame($projectRoot, $kernel->projectRoot());
+            self::assertNull($kernel->dbConnection());
+            self::assertNull($kernel->logger());
+            self::assertNull($kernel->mailer());
+        } finally {
+            rmdir($projectRoot . '/config/env');
+            rmdir($projectRoot . '/config');
+            rmdir($projectRoot);
+        }
+    }
+
+    public function testMkdirFailureOnUnwritableParentThrows(): void
+    {
+        if (function_exists('posix_getuid') && posix_getuid() === 0) {
+            self::markTestSkipped('Running as root bypasses directory permission checks.');
+        }
+
+        // G1: mkdir() failure (permissions, read-only filesystem) is the
+        // ONE case that throws — everything else about a missing directory
+        // degrades gracefully. Two separate mkdir() calls, not one recursive
+        // one: a recursive mkdir() applies the restrictive mode to
+        // $projectRoot itself too, which would then block creating "config"
+        // underneath it for the wrong reason.
+        $projectRoot = sys_get_temp_dir() . '/jardis-kernel-bootstrap-readonly-' . uniqid('', true);
+        mkdir($projectRoot, 0755);
+        mkdir($projectRoot . '/config', 0555);
+
+        try {
+            $this->expectException(\RuntimeException::class);
+
+            (new BuildDomainKernelFromEnv())($projectRoot);
+        } finally {
+            chmod($projectRoot . '/config', 0755);
+            rmdir($projectRoot . '/config');
+            rmdir($projectRoot);
         }
     }
 

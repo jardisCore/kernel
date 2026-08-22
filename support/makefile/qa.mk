@@ -1,5 +1,7 @@
 <---qa tools----->: ## -----------------------------------------------------------------------
-phpunit: ## Run all tests
+# The full suite needs real brokers (redis, rabbitmq, kafka) — `start` is a
+# prerequisite so no test relies on manually started infrastructure.
+phpunit: start ## Run all tests
 	$(DOCKER_COMPOSE) run --rm --no-deps phpcli vendor/bin/phpunit --bootstrap ./tests/bootstrap.php /app/tests
 .PHONY: phpunit
 
@@ -7,7 +9,7 @@ phpunit-unit: ## Run unit tests only
 	$(DOCKER_COMPOSE) run --rm --no-deps phpcli vendor/bin/phpunit --bootstrap ./tests/bootstrap.php /app/tests/Unit
 .PHONY: phpunit-unit
 
-phpunit-coverage: ## Run all tests with coverage text
+phpunit-coverage: start ## Run all tests with coverage text
 	$(DOCKER_COMPOSE) run --rm --no-deps -e PCOV_ENABLED=1 phpcli vendor/bin/phpunit --bootstrap ./tests/bootstrap.php /app/tests --coverage-text
 .PHONY: phpunit-coverage
 
