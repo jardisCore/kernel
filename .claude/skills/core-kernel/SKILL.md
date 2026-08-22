@@ -155,6 +155,27 @@ $ecommerce = new Ecommerce($kernel);
   custom PSR-11 container? Build a `DomainKernel` directly instead of going
   through the packer.
 
+## ERROR HANDLING (R1, env-konfiguration P2)
+
+Every `Bootstrap\Handler\*` follows the same four ENV rules: a missing or
+empty key degrades to `null`; an invalid value or a configured-but-unreachable
+service both throw `Exception\InvalidEnvConfigurationException`; an
+unrecognized key is ignored. Two shared units carry this:
+
+- `Handler\NormalizeEnvBool` — the one unit every boolean-typed key goes
+  through. DotEnv casts a literal `true`/`false` to `bool` and a bare `1`/`0`
+  to `int`, never a raw string — a `$value === 'true'` comparison silently
+  misreads both.
+- `Handler\IsEnvValueUnset` — the one unit every string-shaped presence check
+  (a hostname, a handler list) goes through. DotEnv's cast chain reads an
+  explicitly empty value as the literal `bool(false)`, indistinguishable from
+  `KEY=false` once cast — a plain `=== null` check misses it.
+
+Credential-shaped keys (`Data\CredentialEnvKeySuffixes`:
+`*_PASSWORD`/`*_USER`/`*_SECRET`/`*_TOKEN`) are registered as
+`jardissupport/dotenv` `^1.2` raw keys before loading, so those values reach
+their handler unchanged as strings instead of a cast `bool`/`int`.
+
 ## THE GENERATED SIDE (not in this package)
 
 Everything downstream of the Koffer is generated per domain by the Jardis
@@ -205,7 +226,7 @@ HTTP-Delivery für den Koffer (FastRoute-Router, PSR-15-Pipeline, kanonischer
 ```
 jardissupport/contracts     ^1.0
 jardissupport/classversion  ^1.0
-jardissupport/dotenv        ^1.0
+jardissupport/dotenv        ^1.2
 jardissupport/factory       ^1.0
 psr/container               ^2.0
 psr/log                     ^3.0

@@ -14,6 +14,10 @@ use Psr\Http\Client\ClientInterface;
  * Builds a PSR-18 HTTP client from ENV values.
  *
  * Requires jardisadapter/http. Configuration via HTTP_* environment variables.
+ * `HTTP_VERIFY_SSL` goes through {@see NormalizeEnvBool} (R1 fix) — the prior
+ * `=== 'true'` Roh-String comparison silently read the DotEnv-cast `bool(true)`
+ * as false, switching SSL verification OFF for the common `HTTP_VERIFY_SSL=true`
+ * case.
  *
  * Ported 1:1 from `jardiscore/foundation` (`Handler\HttpClientHandler`,
  * Kernel-Entkopplung P2).
@@ -43,7 +47,7 @@ final class BuildHttpClientFromEnv
                 timeout: (int) ($env('http_timeout') ?? 30),
                 connectTimeout: (int) ($env('http_connect_timeout') ?? 10),
                 baseUrl: $env('http_base_url') !== null ? (string) $env('http_base_url') : null,
-                verifySsl: ($env('http_verify_ssl') ?? 'true') === 'true',
+                verifySsl: (new NormalizeEnvBool())($env('http_verify_ssl'), 'HTTP_VERIFY_SSL') ?? true,
                 bearerToken: $env('http_bearer_token') !== null
                     ? (string) $env('http_bearer_token') : null,
                 basicUser: $env('http_basic_user') !== null

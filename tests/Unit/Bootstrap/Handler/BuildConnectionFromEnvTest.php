@@ -6,6 +6,7 @@ namespace JardisCore\Kernel\Tests\Unit\Bootstrap\Handler;
 
 use Closure;
 use JardisCore\Kernel\Bootstrap\Handler\BuildConnectionFromEnv;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -16,6 +17,10 @@ use PHPUnit\Framework\TestCase;
  * Network-dependent branches (unreachable mysql/pgsql host, ConnectionPool
  * build failure) use an unresolvable hostname rather than a real database
  * service — fails fast (DNS lookup failure), no Docker dependency (Plan P2 AK).
+ *
+ * R1 (G5 rule 3): once a driver is configured (db_driver=sqlite or db_host
+ * set), a connection failure throws InvalidEnvConfigurationException instead
+ * of degrading to null with a bare error_log — see BEFUNDE.md §1e.
  */
 final class BuildConnectionFromEnvTest extends TestCase
 {
@@ -38,14 +43,14 @@ final class BuildConnectionFromEnvTest extends TestCase
         self::assertInstanceOf(PDO::class, $connection);
     }
 
-    public function testSqliteUnopenableFileReturnsNull(): void
+    public function testSqliteUnopenableFileThrows(): void
     {
-        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionFromEnv())($this->envFrom([
             'db_driver' => 'sqlite',
             'db_path' => '/no/such/directory/at/all/db.sqlite',
         ]));
-
-        self::assertNull($connection);
     }
 
     public function testNoHostReturnsNullForDefaultMysqlDriver(): void
@@ -55,66 +60,66 @@ final class BuildConnectionFromEnvTest extends TestCase
         self::assertNull($connection);
     }
 
-    public function testUnreachableMysqlHostReturnsNull(): void
+    public function testUnreachableMysqlHostThrows(): void
     {
-        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
         ]));
-
-        self::assertNull($connection);
     }
 
-    public function testUnreachablePgsqlHostReturnsNull(): void
+    public function testUnreachablePgsqlHostThrows(): void
     {
-        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionFromEnv())($this->envFrom([
             'db_driver' => 'pgsql',
             'db_host' => 'nonexistent_host_that_does_not_exist',
         ]));
-
-        self::assertNull($connection);
     }
 
-    public function testReaderConfigurationWithUnreachableHostsFallsBackToNull(): void
+    public function testReaderConfigurationWithUnreachableHostsThrows(): void
     {
         // db_reader1_host present -> findReaders() detects a reader -> buildPool()
         // is attempted (ConnectionPool is installed via require-dev); both writer
-        // and reader are unreachable, so the pool build fails and the internal
-        // catch falls back to buildPdo(), which also fails -> null overall.
-        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+        // and reader are unreachable, so the pool build fails, falls back to
+        // buildPdo(), which also fails -> throws (G5 rule 3, no more silent null).
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
             'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
         ]));
-
-        self::assertNull($connection);
     }
 
-    public function testPoolEnvWithStickyWriterKeyStillFallsBackToNullOnUnreachableHosts(): void
+    public function testPoolEnvWithStickyWriterKeyStillThrowsOnUnreachableHosts(): void
     {
         // DB_POOL_* keys only tune the pool config — they change nothing about
-        // the existing \Throwable fallback: unreachable writer/reader still
-        // falls back to buildPdo(), which also fails -> null overall.
-        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+        // the connectivity-failure behaviour: unreachable writer/reader still
+        // falls back to buildPdo(), which also fails -> throws.
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
             'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
-            'db_pool_sticky_writer' => 'true',
+            'db_pool_sticky_writer' => true,
         ]));
-
-        self::assertNull($connection);
     }
 
-    public function testInvalidPoolStrategyEnvFallsBackViaExistingThrowableCatch(): void
+    public function testInvalidPoolStrategyEnvIsRethrownBeforeAnyPdoFallback(): void
     {
-        // The adapter-side InvalidArgumentException from an invalid
-        // DB_POOL_LOAD_BALANCING_STRATEGY is thrown before any connection
-        // opens and lands in the existing fallback (plain PDO on db_host,
-        // unreachable here -> null). No exception escapes the handler.
-        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+        // R1 Senior-PHP blocker: the adapter-side InvalidArgumentException
+        // from an invalid DB_POOL_LOAD_BALANCING_STRATEGY is wrapped as
+        // InvalidEnvConfigurationException and rethrown immediately — it
+        // must never disappear into the plain-PDO fallback.
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
             'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
             'db_pool_load_balancing_strategy' => 'no-such-strategy',
         ]));
-
-        self::assertNull($connection);
     }
 
     public function testConnectionPoolInterfaceIsTheDocumentedReturnType(): void

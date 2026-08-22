@@ -60,7 +60,12 @@ class DomainKernel implements DomainKernelInterface
     public function env(string $key): mixed
     {
         $key = strtolower($key);
-        return $this->env[$key] ?? $_ENV[$key] ?? null;
+        $value = $this->env[$key] ?? $_ENV[$key] ?? null;
+
+        // An explicitly empty value is "missing", not "set to the empty
+        // string" — uniform with BuildDomainKernelFromEnv's $envGet (R1.3
+        // rule 1).
+        return $value === '' ? null : $value;
     }
 
     public function container(): Factory

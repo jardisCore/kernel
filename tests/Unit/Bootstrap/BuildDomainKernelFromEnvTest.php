@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Tests\Unit\Bootstrap;
 
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
 use PDO;
@@ -128,18 +129,15 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         }
     }
 
-    public function testRedisFanOutDegradesGracefullyWhenRedisIsUnreachable(): void
+    public function testRedisFanOutRaisesWhenRedisIsConfiguredButUnreachable(): void
     {
-        $path = $this->fixturePath('RedisFanOutUnreachable');
+        // R1.3 rule 3 (G5): REDIS_HOST is set but unreachable — a configured,
+        // unreachable service now throws instead of BuildRedisFromEnv
+        // silently returning null to both cache and logger (behaviour change,
+        // CHANGELOG.md). See UnreachableServiceExceptionTest for the
+        // dedicated Integration coverage (PLAN.md AK2.5).
+        $this->expectException(InvalidEnvConfigurationException::class);
 
-        $kernel = (new BuildDomainKernelFromEnv())($path);
-
-        // REDIS_HOST is set but unreachable -> BuildRedisFromEnv returns null;
-        // both CACHE_LAYERS=redis and LOG_HANDLERS=redis must degrade to a
-        // working, non-null service without ever seeing an exception —
-        // proving the fan-out passes the SAME (null) Redis outcome to both
-        // consumers rather than each attempting its own connection.
-        self::assertInstanceOf(CacheInterface::class, $kernel->cache());
-        self::assertInstanceOf(LoggerInterface::class, $kernel->logger());
+        (new BuildDomainKernelFromEnv())($this->fixturePath('RedisFanOutUnreachable'));
     }
 }

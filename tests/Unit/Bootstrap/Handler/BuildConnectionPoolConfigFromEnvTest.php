@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Tests\Unit\Bootstrap\Handler;
 
 use Closure;
-use InvalidArgumentException;
 use JardisAdapter\DbConnection\Config\ConnectionPoolConfig;
 use JardisAdapter\DbConnection\ConnectionPool;
 use JardisAdapter\DbConnection\Factory\ConnectionFactory;
 use JardisCore\Kernel\Bootstrap\Handler\BuildConnectionPoolConfigFromEnv;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -19,6 +19,9 @@ use PHPUnit\Framework\TestCase;
  * The sticky-writer case is integration-tested against a real ConnectionPool
  * on SQLite in-memory connections (jardisadapter/dbconnection >= 1.1) — no
  * network, no Docker dependency, same constraint as the sibling test suites.
+ * Bool values here are handed in already cast (`bool`/`int`, not raw
+ * strings) — see the Integration suite (`DbPoolBoolCascadeTest`) for the
+ * proof against a real DotEnv-loaded fixture.
  */
 final class BuildConnectionPoolConfigFromEnvTest extends TestCase
 {
@@ -37,7 +40,7 @@ final class BuildConnectionPoolConfigFromEnvTest extends TestCase
     public function testStickyWriterTrueBuildsConfigCarryingTheFlag(): void
     {
         $config = (new BuildConnectionPoolConfigFromEnv())($this->envFrom([
-            'db_pool_sticky_writer' => 'true',
+            'db_pool_sticky_writer' => true,
         ]));
 
         self::assertInstanceOf(ConnectionPoolConfig::class, $config);
@@ -49,16 +52,28 @@ final class BuildConnectionPoolConfigFromEnvTest extends TestCase
         self::assertSame(ConnectionPoolConfig::STRATEGY_ROUND_ROBIN, $config->loadBalancingStrategy);
     }
 
-    public function testBoolKeysFollowKernelStringComparisonOnlyLiteralTrueIsTrue(): void
+    public function testNumericOneAndZeroAreReadAsBooleans(): void
     {
+        // R1 fix: DotEnv casts a bare "1"/"0" to int, and NormalizeEnvBool
+        // reads that as a real boolean — the pre-fix `=== 'true'` Roh-String
+        // comparison misread both as false (BEFUNDE.md §1c).
         $config = (new BuildConnectionPoolConfigFromEnv())($this->envFrom([
-            'db_pool_sticky_writer' => '1',
-            'db_pool_validate_connections' => 'false',
+            'db_pool_sticky_writer' => 1,
+            'db_pool_validate_connections' => 0,
         ]));
 
         self::assertInstanceOf(ConnectionPoolConfig::class, $config);
-        self::assertFalse($config->stickyWriterDuringTransaction);
+        self::assertTrue($config->stickyWriterDuringTransaction);
         self::assertFalse($config->validateConnections);
+    }
+
+    public function testUnparsableBoolValueThrows(): void
+    {
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildConnectionPoolConfigFromEnv())($this->envFrom([
+            'db_pool_validate_connections' => 'maybe',
+        ]));
     }
 
     public function testSingleIntKeyOnlyThatFieldDeviatesFromDefaults(): void
@@ -100,12 +115,12 @@ final class BuildConnectionPoolConfigFromEnvTest extends TestCase
         self::assertSame(30, $config->healthCheckCacheTtl);
     }
 
-    public function testInvalidStrategyPropagatesAdapterValidation(): void
+    public function testInvalidStrategyWrapsAdapterValidationAsInvalidEnvConfigurationException(): void
     {
-        // BuildConnectionFromEnv catches this in its existing \Throwable
-        // fallback (plain PDO + error_log); the handler itself stays thin
-        // and does not re-validate what the adapter already validates.
-        $this->expectException(InvalidArgumentException::class);
+        // R1 fix: the handler wraps the adapter's InvalidArgumentException so
+        // BuildConnectionFromEnv can recognize and RETHROW it instead of
+        // swallowing it into the plain-PDO fallback (Senior-PHP blocker).
+        $this->expectException(InvalidEnvConfigurationException::class);
 
         (new BuildConnectionPoolConfigFromEnv())($this->envFrom([
             'db_pool_load_balancing_strategy' => 'no-such-strategy',
@@ -115,7 +130,7 @@ final class BuildConnectionPoolConfigFromEnvTest extends TestCase
     public function testStickyWriterConfigReturnsWriterDuringOpenTransaction(): void
     {
         $config = (new BuildConnectionPoolConfigFromEnv())($this->envFrom([
-            'db_pool_sticky_writer' => 'true',
+            'db_pool_sticky_writer' => true,
         ]));
         self::assertInstanceOf(ConnectionPoolConfig::class, $config);
 
