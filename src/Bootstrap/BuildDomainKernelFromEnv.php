@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Bootstrap;
 
 use Closure;
+use JardisCore\Kernel\Bootstrap\Data\CredentialEnvKeySuffixes;
 use JardisCore\Kernel\Bootstrap\Handler\BuildCacheFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildConnectionFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildEventDispatcherFromProvider;
@@ -47,6 +48,10 @@ use JardisSupport\DotEnv\DotEnv;
  * Pattern") — the packed kernel's `container()` is the bare `Factory`
  * fallback; callers needing a custom PSR-11 container build their own
  * `DomainKernel` directly.
+ *
+ * Credential-shaped keys ({@see CredentialEnvKeySuffixes}) are registered as
+ * DotEnv raw keys before loading — `DB_PASSWORD=false`/`=123456` reach the
+ * handlers as the literal string, not a cast `bool`/`int` (R1.2, G6).
  */
 final class BuildDomainKernelFromEnv
 {
@@ -64,7 +69,9 @@ final class BuildDomainKernelFromEnv
 
     public function __construct()
     {
-        $this->loadEnv = (new DotEnv())->loadPrivate(...);
+        $dotEnv = new DotEnv();
+        $dotEnv->addRawKeys(CredentialEnvKeySuffixes::SUFFIXES);
+        $this->loadEnv = $dotEnv->loadPrivate(...);
         $this->buildConnection = (new BuildConnectionFromEnv())->__invoke(...);
         $this->extractPdo = (new ExtractPdoFromConnection())->__invoke(...);
         $this->buildRedis = (new BuildRedisFromEnv())->__invoke(...);
@@ -80,7 +87,13 @@ final class BuildDomainKernelFromEnv
     public function __invoke(string $configPath): DomainKernel
     {
         $env = array_change_key_case(($this->loadEnv)($configPath), CASE_LOWER);
-        $envGet = static fn (string $key): mixed => $env[strtolower($key)] ?? $_ENV[strtolower($key)] ?? null;
+        $envGet = static function (string $key) use ($env): mixed {
+            $value = $env[strtolower($key)] ?? $_ENV[strtolower($key)] ?? null;
+            // An explicitly empty value (`KEY=`) is "missing", not "set to
+            // the empty string" — one place instead of every Handler doing
+            // its own '' check (R1.3 rule 1, uniform across all handlers).
+            return $value === '' ? null : $value;
+        };
 
         $connection = ($this->buildConnection)($envGet);
         $redis = ($this->buildRedis)($envGet);

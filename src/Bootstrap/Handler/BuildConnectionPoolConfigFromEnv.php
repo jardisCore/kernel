@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Bootstrap\Handler;
 
 use Closure;
+use InvalidArgumentException;
 use JardisAdapter\DbConnection\Config\ConnectionPoolConfig;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 
 /**
  * Builds an optional ConnectionPoolConfig from ENV values.
@@ -16,8 +18,15 @@ use JardisAdapter\DbConnection\Config\ConnectionPoolConfig;
  * set are passed as named arguments; unset keys keep the ConnectionPoolConfig
  * defaults (defined by jardisadapter/dbconnection, not duplicated here).
  *
- * Booleans follow the kernel-wide string comparison (`BuildHttpClientFromEnv`):
- * only the literal `true` is true.
+ * Booleans go through {@see NormalizeEnvBool} (R1 fix) — the prior
+ * `=== 'true'` Roh-String comparison silently misread the DotEnv-cast
+ * `bool`/`int` values.
+ *
+ * An invalid `DB_POOL_LOAD_BALANCING_STRATEGY` is the adapter's own
+ * `InvalidArgumentException` (eager validation in `ConnectionPoolConfig`'s
+ * constructor) — wrapped here as {@see InvalidEnvConfigurationException} so
+ * {@see BuildConnectionFromEnv} can recognize and rethrow it instead of
+ * swallowing it into the plain-PDO fallback (G5 rule 2).
  *
  * `DB_POOL_STICKY_WRITER` requires jardisadapter/dbconnection >= 1.1.0
  * (`stickyWriterDuringTransaction`); on older versions the resulting unknown
@@ -41,9 +50,9 @@ final class BuildConnectionPoolConfigFromEnv
 
         $arguments = [];
 
-        $validate = $env('db_pool_validate_connections');
+        $validate = (new NormalizeEnvBool())($env('db_pool_validate_connections'), 'DB_POOL_VALIDATE_CONNECTIONS');
         if ($validate !== null) {
-            $arguments['validateConnections'] = $validate === 'true';
+            $arguments['validateConnections'] = $validate;
         }
 
         $cacheTtl = $env('db_pool_health_check_cache_ttl');
@@ -61,15 +70,19 @@ final class BuildConnectionPoolConfigFromEnv
             $arguments['loadBalancingStrategy'] = (string) $strategy;
         }
 
-        $sticky = $env('db_pool_sticky_writer');
+        $sticky = (new NormalizeEnvBool())($env('db_pool_sticky_writer'), 'DB_POOL_STICKY_WRITER');
         if ($sticky !== null) {
-            $arguments['stickyWriterDuringTransaction'] = $sticky === 'true';
+            $arguments['stickyWriterDuringTransaction'] = $sticky;
         }
 
         if ($arguments === []) {
             return null;
         }
 
-        return new ConnectionPoolConfig(...$arguments);
+        try {
+            return new ConnectionPoolConfig(...$arguments);
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidEnvConfigurationException($e->getMessage(), previous: $e);
+        }
     }
 }

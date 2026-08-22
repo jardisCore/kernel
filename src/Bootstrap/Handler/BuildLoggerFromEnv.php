@@ -27,7 +27,7 @@ final class BuildLoggerFromEnv
     /** @param Closure(string): mixed $env */
     public function __invoke(Closure $env, ?Redis $redis = null): ?LoggerInterface
     {
-        if ($env('log_handlers') === null || !class_exists(LoggerBuilder::class)) {
+        if ((new IsEnvValueUnset())($env('log_handlers')) || !class_exists(LoggerBuilder::class)) {
             return null;
         }
 

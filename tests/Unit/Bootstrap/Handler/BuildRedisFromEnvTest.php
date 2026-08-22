@@ -6,6 +6,7 @@ namespace JardisCore\Kernel\Tests\Unit\Bootstrap\Handler;
 
 use Closure;
 use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -13,11 +14,10 @@ use PHPUnit\Framework\TestCase;
  *
  * This repo's docker-compose (support/docker-compose.yml) has no Redis
  * service — a real connect/auth/select round-trip is out of scope for this
- * package's QA (Plan P2 AK: "keine Docker-Pflicht"). Covered here: the two
- * branches reachable without live infrastructure (no host configured;
- * unreachable host -> caught RedisException -> null) plus the prefix
- * parameter, which is exactly the subset `jardiscore/foundation`'s own
- * RedisHandlerTest exercises without the docker-only Redis service.
+ * package's QA (Plan P2 AK: "keine Docker-Pflicht"). Covered here: the
+ * branches reachable without live infrastructure (no host configured -> null;
+ * unreachable host -> InvalidEnvConfigurationException, R1 G5 rule 3) plus
+ * the prefix parameter.
  *
  * Added beyond that subset: the missing-`ext-redis` branch, which needs no
  * Redis service either — it forks a PHP without extensions instead (see the
@@ -32,14 +32,16 @@ final class BuildRedisFromEnvTest extends TestCase
         self::assertNull($redis);
     }
 
-    public function testUnreachableHostReturnsNull(): void
+    public function testUnreachableHostThrows(): void
     {
-        $redis = (new BuildRedisFromEnv())($this->envFrom([
+        // R1 (G5 rule 3): a configured but unreachable Redis now throws
+        // instead of silently degrading to null.
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildRedisFromEnv())($this->envFrom([
             'redis_host' => 'nonexistent_host_that_does_not_exist',
             'redis_port' => '6379',
         ]));
-
-        self::assertNull($redis);
     }
 
     public function testCustomPrefixWithNoHostReturnsNull(): void
@@ -53,12 +55,12 @@ final class BuildRedisFromEnvTest extends TestCase
     {
         // Only "other_host" is set — the default "redis_" prefix must NOT
         // pick it up; passing the matching prefix must at least attempt
-        // the connection (and fail fast against the unreachable host).
-        $redis = (new BuildRedisFromEnv())($this->envFrom([
+        // the connection (and throw on the unreachable host).
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildRedisFromEnv())($this->envFrom([
             'other_host' => 'nonexistent_host_that_does_not_exist',
         ]), 'other_');
-
-        self::assertNull($redis);
     }
 
     /**
