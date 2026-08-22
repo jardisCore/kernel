@@ -19,14 +19,14 @@ final class ErrorDegradationRulesTest extends TestCase
 {
     private function fixturePath(string $name): string
     {
-        return __DIR__ . '/../../Fixtures/Bootstrap/' . $name;
+        return __DIR__ . '/../../Fixtures/ProjectRoot/' . $name;
     }
 
     public function testEmptyDbHostDegradesToNullNotToAnEmptyHostAttempt(): void
     {
         // DB_HOST= (empty value) is "missing", not "set to the empty
         // string" (R1.3 rule 1) — no connection attempt, no exception.
-        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('ErrorRules/EmptyDbHost'));
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('EmptyDbHost'));
 
         self::assertNull($kernel->dbConnection());
     }
@@ -34,7 +34,7 @@ final class ErrorDegradationRulesTest extends TestCase
     public function testUnknownForeignKeyIsIgnoredBootStaysUnaffected(): void
     {
         // FOO_BAR=x is not a canonical key of any handler — R1.3 rule 4.
-        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('ErrorRules/UnknownForeignKey'));
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('UnknownForeignKey'));
 
         self::assertNull($kernel->dbConnection());
         self::assertNull($kernel->mailer());
@@ -44,7 +44,7 @@ final class ErrorDegradationRulesTest extends TestCase
     public function testMissingDbConfigurationDegradesToNull(): void
     {
         // No DB_* key at all, default driver mysql, no host -> null (Bestand).
-        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('ErrorRules/UnknownForeignKey'));
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('UnknownForeignKey'));
 
         self::assertNull($kernel->dbConnection());
     }
@@ -57,7 +57,7 @@ final class ErrorDegradationRulesTest extends TestCase
         // bare error_log — the invalid strategy itself never surfaced.
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('ErrorRules/InvalidPoolStrategy'));
+        (new BuildDomainKernelFromEnv())($this->fixturePath('InvalidPoolStrategy'));
     }
 
     public function testSqliteInMemoryStillWorksAsTheUnconfiguredDefault(): void

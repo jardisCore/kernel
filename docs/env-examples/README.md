@@ -1,13 +1,16 @@
 # ENV Templates for `BuildDomainKernelFromEnv`
 
 These files are templates, not live config — copy the ones you need into your
-App config root (the directory you pass to
-`(new BuildDomainKernelFromEnv())($configPath)`) and strip the `.example`
-suffix. `BuildDomainKernelFromEnv` loads that directory via
+project's `config/env/` directory (the fixed convention: `BuildDomainKernelFromEnv`
+takes the **project root**, `(new BuildDomainKernelFromEnv())($projectRoot)`,
+and always reads `<projectRoot>/config/env` — see the `projekt-layout-konvention`
+Wissensbasis entry) and strip the `.example` suffix.
+`BuildDomainKernelFromEnv` loads that directory via
 `JardisSupport\DotEnv\DotEnv::loadPrivate()` — the same `load()` / `load?()`
 cascade every other Jardis config file understands (required includes throw
 `EnvFileNotFoundException` if missing; `load?()` includes are silently
-skipped).
+skipped). Missing `config/env` is created automatically (race-safe `mkdir`);
+only a failed creation throws.
 
 Content revised from the Builder's former `SharedRuntime/` ENV generat
 (`tools/builder tests/Builder/Generated/Domain/SharedRuntime`, read-only
@@ -248,7 +251,7 @@ The only key in this Bootstrap-Packer's ENV landscape with App-, not
 Kernel-semantics. `core/kernel` neither reads nor validates it — like any
 other key, it only becomes visible through
 `DomainKernel::env('app_debug')` (`src/DomainKernel.php:60-64`), the same
-private-ENV-then-`$_ENV` lookup every other key here goes through. There is
+file-only private-ENV lookup every other key here goes through. There is
 no `Bootstrap/Handler/*` closure for it, and it feeds nothing on the packed
 `DomainKernel`. Its meaning — gating the generic-vs-detailed error response —
 is defined and documented by `jardiscore/app` (`core/app/docs/getting-started.md`,

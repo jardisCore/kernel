@@ -18,6 +18,7 @@ use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\ExtractPdoFromConnection;
 use JardisCore\Kernel\DomainKernel;
 use JardisSupport\DotEnv\DotEnv;
+use RuntimeException;
 
 /**
  * Packs a {@see DomainKernel} from a config path's cascading `.env` files.
@@ -28,12 +29,21 @@ use JardisSupport\DotEnv\DotEnv;
  * One invokable class, Tätigkeitsname (`BuildDomainKernelFromEnv`), no
  * `static fromEnv()` (User-Entscheid).
  *
+ * Takes the **project root** (the git-clone target), not a config path —
+ * the fixed convention is `<projectRoot>/config/env` (R2, G1/G2/G8). Missing?
+ * The packer creates it (`mkdir`, race-safe against a parallel fpm cold
+ * start); an empty or freshly created directory degrades every service to
+ * `null` like any other unconfigured ENV. An `mkdir` failure (permissions,
+ * read-only filesystem) is the only case that throws — everything else
+ * about a missing directory is "not configured", not an error.
+ *
  * ENV loading uses `DotEnv::loadPrivate()` — the same `load()`/`load?()`
  * cascade every other Jardis config file understands (templates:
- * `docs/env-examples/`). `$configPath` doubles as the resulting kernel's
- * `domainRoot()` — the packer builds one kernel per config root; multiple
- * domains sharing one config path share the same `DomainKernel` instance
- * (explicit sharing, G11 — no more implicit first-write-wins registry).
+ * `docs/env-examples/`). The resulting kernel's `projectRoot()` returns the
+ * project root passed in here, not the internal `config/env` path — the
+ * packer builds one kernel per project root; multiple domains sharing one
+ * project root share the same `DomainKernel` instance (explicit sharing,
+ * G11 — no more implicit first-write-wins registry).
  *
  * Redis fan-out (D4): one Redis connection, built once, feeds both the cache
  * (`redis` layer) and the logger (`redis` handler) — named sub-closures
@@ -84,14 +94,25 @@ final class BuildDomainKernelFromEnv
         $this->buildFilesystem = (new BuildFilesystemFromEnv())->__invoke(...);
     }
 
-    public function __invoke(string $configPath): DomainKernel
+    public function __invoke(string $projectRoot): DomainKernel
     {
+        $configPath = $projectRoot . '/config/env';
+
+        // Race-safe: a parallel fpm cold start may create the directory
+        // between the is_dir() check and mkdir() — re-check after a failed
+        // mkdir() before treating it as a real failure (TOCTOU, G1).
+        if (!is_dir($configPath) && !@mkdir($configPath, 0775, true) && !is_dir($configPath)) {
+            throw new RuntimeException(sprintf('Failed to create config directory "%s".', $configPath));
+        }
+
         $env = array_change_key_case(($this->loadEnv)($configPath), CASE_LOWER);
         $envGet = static function (string $key) use ($env): mixed {
-            $value = $env[strtolower($key)] ?? $_ENV[strtolower($key)] ?? null;
+            $value = $env[strtolower($key)] ?? null;
             // An explicitly empty value (`KEY=`) is "missing", not "set to
             // the empty string" — one place instead of every Handler doing
             // its own '' check (R1.3 rule 1, uniform across all handlers).
+            // No global-process-environment fallback (R3, G16) — file-only,
+            // see DomainKernel::env().
             return $value === '' ? null : $value;
         };
 
@@ -100,7 +121,7 @@ final class BuildDomainKernelFromEnv
         $listenerProvider = ($this->buildEventListenerProvider)();
 
         return new DomainKernel(
-            domainRoot: $configPath,
+            projectRoot: $projectRoot,
             cache: ($this->buildCache)($envGet, ($this->extractPdo)($connection), $redis),
             logger: ($this->buildLogger)($envGet, $redis),
             eventDispatcher: ($this->buildEventDispatcher)($listenerProvider),
