@@ -24,7 +24,7 @@ use RuntimeException;
 /**
  * Packs a {@see DomainKernel} from a config path's cascading `.env` files.
  *
- * The Application-side counterpart to the Koffer (`DomainKernel`) itself
+ * The Application-side counterpart to `DomainKernel` itself
  * (Kernel-Entkopplung D4/A6/Z3) — `jardiscore/kernel`'s optional offer for
  * projects that want ENV-driven wiring without adopting a full framework.
  * One invokable class, Tätigkeitsname (`BuildDomainKernelFromEnv`), no
