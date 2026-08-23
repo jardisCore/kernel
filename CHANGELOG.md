@@ -3,7 +3,31 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — R4 Messaging (env-konfiguration, P4)
+## [2.0.1] — 2026-08-22
+
+Documentation-only release (env-konfiguration, P6): "Koffer" renamed to
+"DomainKernel" across README/CLAUDE.md/docs, `core-kernel` skill rewritten
+for v2, stale `.backup` skill directories dropped.
+
+## [2.0.0] — 2026-08-22 — R2–R4 Project-Root Convention + Messaging (env-konfiguration, P3/P4)
+
+### Changed (BREAKING)
+
+- **Project-root convention (R2).** `DomainKernel`'s first constructor
+  parameter is renamed `domainRoot` → `projectRoot` and now carries the
+  project root (the git-clone target), not a config path.
+  `BuildDomainKernelFromEnv::__invoke(string $projectRoot)` takes the project
+  root as well and reads `<projectRoot>/config/env` (created via race-safe
+  `mkdir` if missing) instead of being handed the config directory directly.
+  `DomainKernel::projectRoot()` (renamed from `domainRoot()`, contracts
+  v2.0.0) returns exactly the path passed in, never the internal `config/env`
+  path.
+- **No `$_ENV`/process-environment fallback in `env()` (R3, G16).** The
+  kernel is file-pure: the removed fallback looked up a lowercase key against
+  the process environment, which never matched Docker's UPPERCASE
+  `environment:` entries (BEFUNDE §1b). An explicitly empty value counts as
+  "missing" (uniform with the packer's `$envGet`, R1.3 rule 1).
+- Consumes released `jardissupport/contracts ^2.0` (path-repo dropped).
 
 ### Added
 
@@ -80,7 +104,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a `block` option shorter than that doesn't spuriously throw a client-side
   read error before the server's own `BLOCK` window elapses.
 
-## [Unreleased] — R1 Kernel Bugfixes (env-konfiguration, P2)
+## [1.2.0] — 2026-08-22 — R1 Kernel Bugfixes (env-konfiguration, P2)
 
 Family-grep across all 11 `src/Bootstrap/Handler/*.php` files against the
 pattern "Roh-String comparison against an already-cast value" (the class of
