@@ -68,8 +68,8 @@ use RuntimeException;
  * Secret resolution: when `<projectRoot>/support/secret.key` exists and
  * jardissupport/secret is installed, a `SecretHandler` is prepended to the
  * DotEnv chain so `secret(...)` values decrypt before any cast handler runs;
- * credential raw keys skip that chain, so the same handler runs once more
- * over the loaded string values. No key file or missing package skips
+ * credential raw keys skip only the cast handlers — value handlers still
+ * reach them (dotenv >= 1.3). No key file or missing package skips
  * resolution silently, like every other optional adapter. DotEnv itself is
  * built fresh per call, so handlers never accumulate across project roots.
  */

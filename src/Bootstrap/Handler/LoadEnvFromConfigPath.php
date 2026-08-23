@@ -15,8 +15,9 @@ use JardisSupport\Secret\Handler\SecretHandler;
  * shared one would accumulate secret handlers across packer invocations with
  * different project roots. The secret handler is prepended so decrypted values
  * still pass the cast chain; credential raw keys
- * ({@see CredentialEnvKeySuffixes}) skip that chain entirely, so the same
- * handler runs once more over the loaded string values.
+ * ({@see CredentialEnvKeySuffixes}) only skip the cast handlers — since
+ * dotenv 1.3 value handlers still run over them, so decryption reaches every
+ * value in one pass.
  */
 final class LoadEnvFromConfigPath
 {
@@ -32,18 +33,6 @@ final class LoadEnvFromConfigPath
             $dotEnv->addHandler($secretHandler, prepend: true);
         }
 
-        $env = $dotEnv->loadPrivate($configPath);
-
-        if ($secretHandler === null) {
-            return $env;
-        }
-
-        foreach ($env as $key => $value) {
-            if (is_string($value)) {
-                $env[$key] = $secretHandler($value);
-            }
-        }
-
-        return $env;
+        return $dotEnv->loadPrivate($configPath);
     }
 }
