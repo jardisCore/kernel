@@ -34,6 +34,7 @@
         "jardisadapter/logger": "For log handlers (File, Console, Redis, Database, etc.) via the Bootstrap-Packer",
         "jardisadapter/mailer": "For SMTP mailer with STARTTLS, AUTH, HTML/text, attachments via the Bootstrap-Packer",
         "jardisadapter/messaging": "For Kafka/RabbitMQ/Redis messaging via the Bootstrap-Packer",
+        "jardissupport/secret": "For decrypting secret(...) ENV values via the Bootstrap-Packer when <projectRoot>/support/secret.key exists",
         "ext-redis": "For Redis-based caching, logging and messaging via the Bootstrap-Packer",
         "ext-rdkafka": "For Kafka messaging via the Bootstrap-Packer",
         "ext-amqp": "For RabbitMQ messaging via the Bootstrap-Packer"
@@ -51,6 +52,7 @@
         "jardisadapter/logger": "^1.0",
         "jardisadapter/mailer": "^1.0",
         "jardisadapter/messaging": "^1.0",
+        "jardissupport/secret": "^1.0",
         "ext-redis": "*",
         "ext-rdkafka": "*",
         "ext-amqp": "*"
