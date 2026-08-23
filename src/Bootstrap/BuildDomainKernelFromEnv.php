@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Bootstrap;
 
 use Closure;
-use JardisCore\Kernel\Bootstrap\Data\CredentialEnvKeySuffixes;
 use JardisCore\Kernel\Bootstrap\Handler\BuildCacheFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildConnectionFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildEventDispatcherFromProvider;
@@ -16,9 +15,10 @@ use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMailerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMessagingFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
+use JardisCore\Kernel\Bootstrap\Handler\BuildSecretHandlerFromKeyFile;
 use JardisCore\Kernel\Bootstrap\Handler\ExtractPdoFromConnection;
+use JardisCore\Kernel\Bootstrap\Handler\LoadEnvFromConfigPath;
 use JardisCore\Kernel\DomainKernel;
-use JardisSupport\DotEnv\DotEnv;
 use RuntimeException;
 
 /**
@@ -60,13 +60,23 @@ use RuntimeException;
  * fallback; callers needing a custom PSR-11 container build their own
  * `DomainKernel` directly.
  *
- * Credential-shaped keys ({@see CredentialEnvKeySuffixes}) are registered as
- * DotEnv raw keys before loading — `DB_PASSWORD=false`/`=123456` reach the
- * handlers as the literal string, not a cast `bool`/`int` (R1.2, G6).
+ * Credential-shaped keys ({@see LoadEnvFromConfigPath},
+ * `CredentialEnvKeySuffixes`) are registered as DotEnv raw keys before
+ * loading — `DB_PASSWORD=false`/`=123456` reach the handlers as the literal
+ * string, not a cast `bool`/`int` (R1.2, G6).
+ *
+ * Secret resolution: when `<projectRoot>/support/secret.key` exists and
+ * jardissupport/secret is installed, a `SecretHandler` is prepended to the
+ * DotEnv chain so `secret(...)` values decrypt before any cast handler runs;
+ * credential raw keys skip that chain, so the same handler runs once more
+ * over the loaded string values. No key file or missing package skips
+ * resolution silently, like every other optional adapter. DotEnv itself is
+ * built fresh per call, so handlers never accumulate across project roots.
  */
 final class BuildDomainKernelFromEnv
 {
     private readonly Closure $loadEnv;
+    private readonly Closure $buildSecretHandler;
     private readonly Closure $buildConnection;
     private readonly Closure $extractPdo;
     private readonly Closure $buildRedis;
@@ -81,9 +91,8 @@ final class BuildDomainKernelFromEnv
 
     public function __construct()
     {
-        $dotEnv = new DotEnv();
-        $dotEnv->addRawKeys(CredentialEnvKeySuffixes::SUFFIXES);
-        $this->loadEnv = $dotEnv->loadPrivate(...);
+        $this->loadEnv = (new LoadEnvFromConfigPath())->__invoke(...);
+        $this->buildSecretHandler = (new BuildSecretHandlerFromKeyFile())->__invoke(...);
         $this->buildConnection = (new BuildConnectionFromEnv())->__invoke(...);
         $this->extractPdo = (new ExtractPdoFromConnection())->__invoke(...);
         $this->buildRedis = (new BuildRedisFromEnv())->__invoke(...);
@@ -108,7 +117,10 @@ final class BuildDomainKernelFromEnv
             throw new RuntimeException(sprintf('Failed to create config directory "%s".', $configPath));
         }
 
-        $env = array_change_key_case(($this->loadEnv)($configPath), CASE_LOWER);
+        $env = array_change_key_case(
+            ($this->loadEnv)($configPath, ($this->buildSecretHandler)($projectRoot)),
+            CASE_LOWER,
+        );
         $envGet = static function (string $key) use ($env): mixed {
             $value = $env[strtolower($key)] ?? null;
             // An explicitly empty value (`KEY=`) is "missing", not "set to
