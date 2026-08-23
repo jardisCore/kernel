@@ -17,7 +17,7 @@
         "ext-pdo": "*",
         "jardissupport/contracts": "^2.0",
         "jardissupport/classversion": "^1.0",
-        "jardissupport/dotenv": "^1.2",
+        "jardissupport/dotenv": "^1.3",
         "jardissupport/factory": "^1.0",
         "psr/container": "^2.0",
         "psr/log": "^3.0",
