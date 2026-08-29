@@ -48,7 +48,10 @@ use RuntimeException;
  *
  * Redis fan-out (D4): one Redis connection, built once, feeds both the cache
  * (`redis` layer) and the logger (`redis` handler) — named sub-closures
- * rather than duplicated wiring.
+ * rather than duplicated wiring. The database connection fans out the same
+ * way: its writer PDO ({@see ExtractPdoFromConnection}, extracted once) feeds
+ * both the optional `db` cache layer and the `database` messaging transport
+ * — one stack, one database, never a second DSN to keep in sync.
  *
  * All 7 adapter packages this packer can use are optional (composer
  * `suggest`); every Handler closure degrades to `null` via `class_exists()`
@@ -132,12 +135,16 @@ final class BuildDomainKernelFromEnv
         };
 
         $connection = ($this->buildConnection)($envGet);
+        // One extraction, two consumers: the optional `db` cache layer and
+        // the database messaging transport both run on the writer PDO the
+        // connection above already carries (D4 fan-out, same idea as Redis).
+        $writerPdo = ($this->extractPdo)($connection);
         $redis = ($this->buildRedis)($envGet);
         $listenerProvider = ($this->buildEventListenerProvider)();
 
         return new DomainKernel(
             projectRoot: $projectRoot,
-            cache: ($this->buildCache)($envGet, ($this->extractPdo)($connection), $redis),
+            cache: ($this->buildCache)($envGet, $writerPdo, $redis),
             logger: ($this->buildLogger)($envGet, $redis),
             eventDispatcher: ($this->buildEventDispatcher)($listenerProvider),
             eventListenerRegistry: $listenerProvider,
@@ -146,7 +153,7 @@ final class BuildDomainKernelFromEnv
             mailer: ($this->buildMailer)($envGet),
             filesystem: ($this->buildFilesystem)(),
             env: $env,
-            messaging: ($this->buildMessaging)($envGet),
+            messaging: ($this->buildMessaging)($envGet, $writerPdo),
         );
     }
 }
