@@ -122,7 +122,7 @@ directory itself fails (permissions, read-only filesystem).
 `BuildDomainKernelFromEnv` wires nine services (cache, logger, event
 dispatcher + listener registry, HTTP client, DB connection, mailer,
 filesystem, messaging) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
-`REDIS_*` / `MESSAGING_*` / `KAFKA_*` / `RABBITMQ_*` ENV keys — see
+`REDIS_*` / `MESSAGING_*` / `MESSAGING_DB_*` / `KAFKA_*` / `RABBITMQ_*` ENV keys — see
 [`docs/env-examples/README.md`](docs/env-examples/README.md) for the full key
 reference. The resulting packed `DomainKernel` exposes twelve accessors in
 total (the nine services above, plus `projectRoot()`, `env()`, and
@@ -170,7 +170,7 @@ $kernel = new DomainKernel(
 | `dbConnection()` | `ConnectionPoolInterface\|PDO\|null` |
 | `mailer()` | `?MailerInterface` |
 | `filesystem()` | `?FilesystemServiceInterface` |
-| `messaging()` | `?MessagingServiceInterface` |
+| `messaging()` | `?MessagingServiceInterface` — `MESSAGING_TRANSPORT=kafka \| rabbitmq \| redis \| database`; `database` is broker-less and reuses the writer PDO from `DB_*` |
 
 `DomainKernel` builds nothing and reads no ENV itself — it is a pure,
 immutable consumer. All ENV/service-assembly is `Bootstrap\BuildDomainKernelFromEnv`'s
@@ -293,7 +293,7 @@ BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> DomainKernel
     ├── Handler\BuildHttpClientFromEnv
     ├── Handler\BuildMailerFromEnv
     ├── Handler\BuildFilesystemFromEnv
-    ├── Handler\BuildMessagingFromEnv               kafka | rabbitmq | redis (R4)
+    ├── Handler\BuildMessagingFromEnv               kafka | rabbitmq | redis | database (R4)
     ├── Handler\NormalizeEnvBool                   shared ENV-to-bool unit (R1)
     ├── Handler\IsEnvValueUnset                    shared "is this key configured" check (R1)
     ├── Data\CredentialEnvKeySuffixes               *_PASSWORD | *_USER | *_SECRET | *_TOKEN (R1)

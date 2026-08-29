@@ -166,7 +166,7 @@ Code: `src/Bootstrap/Handler/BuildMailerFromEnv.php:24-51`.
 
 | Key | Default | Notes |
 |---|---|---|
-| `MESSAGING_TRANSPORT` | — | unset/empty ⇒ `null` (no messaging at all); `kafka` \| `rabbitmq` \| `redis`; any other value throws `InvalidEnvConfigurationException` |
+| `MESSAGING_TRANSPORT` | — | unset/empty ⇒ `null` (no messaging at all); `kafka` \| `rabbitmq` \| `redis` \| `database`; any other value throws `InvalidEnvConfigurationException` |
 | `KAFKA_BROKERS` | — | kafka only; **required** once `MESSAGING_TRANSPORT=kafka` — missing/empty throws `InvalidEnvConfigurationException` at boot; comma-separated `host:port` list, passed unchanged into the factory's host field — no separate `KAFKA_PORT` key (closes the Kafka-Falle, BEFUNDE.md §5) |
 | `KAFKA_USER` / `KAFKA_PASSWORD` | `null` | kafka only; SASL_SSL/PLAIN when both are set |
 | `RABBITMQ_HOST` | — | rabbitmq only; **required** once `MESSAGING_TRANSPORT=rabbitmq` — no implicit `localhost`, missing/empty throws `InvalidEnvConfigurationException` at boot |
@@ -176,12 +176,46 @@ Code: `src/Bootstrap/Handler/BuildMailerFromEnv.php:24-51`.
 | `REDIS_HOST` | — | redis only; same key as `.env.redis.example`, but its own connection — never the cache/logger's shared one (a blocking `consume()` call would starve it); **required** once `MESSAGING_TRANSPORT=redis` — no implicit `localhost`, missing/empty throws `InvalidEnvConfigurationException` at boot |
 | `REDIS_PORT` | `6379` | redis only |
 | `REDIS_PASSWORD` | — | redis only |
+| `MESSAGING_DB_TABLE` | `domain_events` | database only; event table |
+| `MESSAGING_DB_SUBSCRIPTION_TABLE` | `domain_event_subscriptions` | database only; fan-out consumer-group table, needed only when `consume()` is called with a `group` option |
+| `MESSAGING_DB_DELETE_AFTER_PROCESSING` | `false` | database only; `true` = hard delete after processing, `false` = soft delete via `processed_at` |
+| `MESSAGING_DB_POLLING_INTERVAL_MS` | `1000` | database only; wait between polls when no message is pending |
+| `MESSAGING_DB_BATCH_SIZE` | `10` | database only; messages fetched per poll cycle |
+| `MESSAGING_DB_MAX_ATTEMPTS` | `3` | database only; processing attempts before a message is skipped |
 
-All three "required" fields fail at **boot** (packing the kernel), not on
+All four "required" fields fail at **boot** (packing the kernel), not on
 the first `publish()`/`consume()` call — a configured transport with a
 missing identifying field is treated as invalid config (G5 rule 2), not as
-"unconfigured". An unreachable-but-well-formed broker is still a lazy
-failure, deferred to first use, same as the DB/Redis cache accessors.
+"unconfigured". `database`'s required field is not an ENV key of its own but
+a usable `DB_*` connection (see below). An unreachable-but-well-formed broker
+is still a lazy failure, deferred to first use, same as the DB/Redis cache
+accessors.
+
+#### `database` — the broker-less transport
+
+`MESSAGING_TRANSPORT=database` needs **no broker and no second DSN**: it
+reuses the writer PDO the packer already built from `DB_*` (the same handle
+`dbConnection()` returns and the optional `db` cache layer uses), wrapped
+with `manageLifecycle: false` so the messaging side never closes a
+connection the domain code still holds. Consequences:
+
+- `MESSAGING_TRANSPORT=database` **without a usable `DB_*` connection** throws
+  `InvalidEnvConfigurationException` — `MESSAGING_TRANSPORT=database requires
+  a configured database (DB_*).` Same line as rabbitmq without
+  `RABBITMQ_HOST`: explicitly chosen transport, mandatory config missing.
+- The six `MESSAGING_DB_*` keys above are all optional; each missing one
+  falls back to the adapter's own default, never to a second default list
+  kept here.
+- Consuming works through `messaging()->consume()` (unlike kafka) — it polls
+  the event table. Point-to-Point is the default; fan-out is a per-call
+  option (`['group' => '…']`), not an ENV key.
+
+**The tables are a migration, not a kernel task** (Säule 1 — the kernel wires
+services, it does not own your schema). `jardisadapter/messaging` ships the
+MySQL reference schema at `src/Schema/domain_events.sql` (tables
+`domain_events` and, for fan-out, `domain_event_subscriptions`); run it — or
+its Postgres/SQLite equivalent — as part of your normal migrations before the
+first `publish()`. Nothing is created on the fly.
 
 Kafka consuming needs a consumer group ID, which has no `MESSAGING_*` key (a
 deliberate scope boundary, not an oversight) — `messaging()->consume()`
