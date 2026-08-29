@@ -33,7 +33,7 @@
         "jardisadapter/http": "For PSR-18 HTTP client with handler pipeline via the Bootstrap-Packer",
         "jardisadapter/logger": "For log handlers (File, Console, Redis, Database, etc.) via the Bootstrap-Packer",
         "jardisadapter/mailer": "For SMTP mailer with STARTTLS, AUTH, HTML/text, attachments via the Bootstrap-Packer",
-        "jardisadapter/messaging": "For Kafka/RabbitMQ/Redis messaging via the Bootstrap-Packer",
+        "jardisadapter/messaging": "For Kafka/RabbitMQ/Redis/Database messaging via the Bootstrap-Packer",
         "jardissupport/secret": "For decrypting secret(...) ENV values via the Bootstrap-Packer when <projectRoot>/support/secret.key exists",
         "ext-redis": "For Redis-based caching, logging and messaging via the Bootstrap-Packer",
         "ext-rdkafka": "For Kafka messaging via the Bootstrap-Packer",
