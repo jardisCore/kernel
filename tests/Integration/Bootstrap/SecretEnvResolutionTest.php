@@ -5,18 +5,27 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Tests\Integration\Bootstrap;
 
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
+use JardisCore\Kernel\Tests\Support\EnvIsolation;
 use JardisSupport\Secret\Resolver\AesSecretResolver;
 use PHPUnit\Framework\TestCase;
 
 /**
  * Secret resolution through the full Bootstrap-Packer against real temp
- * project roots (Requirement projekt-template-env.md §8): a key file at
- * `<projectRoot>/support/secret.key` turns `secret(...)` ENV values into
- * plaintext; no key file leaves them raw without any error; and the handler
- * is scoped per `__invoke` call — it never leaks between project roots.
+ * project roots: a key file at `<projectRoot>/support/secret.key` turns
+ * `secret(...)` ENV values in the root `.env` into plaintext; without any key
+ * the O8 guard aborts the bootstrap instead of handing a cipher on as a value;
+ * and the handler is scoped per `__invoke` call — it never leaks between
+ * project roots.
+ *
+ * The key chain's first step (`APP_SECRET_KEY`) and the ambient `APP_ENV` are
+ * isolated ({@see EnvIsolation}) so nothing outside the fixture decides the
+ * outcome.
  */
 final class SecretEnvResolutionTest extends TestCase
 {
+    use EnvIsolation;
+
     /** @var array<string> */
     private array $projectRoots = [];
 
@@ -24,15 +33,16 @@ final class SecretEnvResolutionTest extends TestCase
 
     protected function setUp(): void
     {
+        $this->saveProcessEnv();
         $this->key = random_bytes(32);
     }
 
     protected function tearDown(): void
     {
+        $this->restoreProcessEnv();
+
         foreach ($this->projectRoots as $projectRoot) {
-            @unlink($projectRoot . '/config/env/.env');
-            @rmdir($projectRoot . '/config/env');
-            @rmdir($projectRoot . '/config');
+            @unlink($projectRoot . '/.env');
             @unlink($projectRoot . '/support/secret.key');
             @rmdir($projectRoot . '/support');
             @rmdir($projectRoot);
@@ -43,8 +53,8 @@ final class SecretEnvResolutionTest extends TestCase
     private function createProjectRoot(string $envContent, bool $withKeyFile): string
     {
         $projectRoot = sys_get_temp_dir() . '/jardis-kernel-secret-' . uniqid('', true);
-        mkdir($projectRoot . '/config/env', 0775, true);
-        file_put_contents($projectRoot . '/config/env/.env', $envContent);
+        mkdir($projectRoot, 0775, true);
+        file_put_contents($projectRoot . '/.env', $envContent);
 
         if ($withKeyFile) {
             mkdir($projectRoot . '/support', 0775, true);
@@ -89,39 +99,45 @@ final class SecretEnvResolutionTest extends TestCase
         self::assertTrue($kernel->env('feature_enabled'));
     }
 
-    public function testMissingKeyFileLeavesSecretValueRawWithoutError(): void
+    public function testMissingKeyAbortsInsteadOfPassingTheCipherOn(): void
     {
+        // Behaviour change (v2.4.0, O8): a `secret(...)` value that nothing
+        // can resolve used to reach the handlers verbatim — a cipher silently
+        // used as a password. It is now a loud config error.
         $cipher = $this->encrypt('never-seen');
         $projectRoot = $this->createProjectRoot(
             'DB_PASSWORD=' . $cipher . "\n",
             withKeyFile: false,
         );
 
-        $kernel = (new BuildDomainKernelFromEnv())($projectRoot);
+        $this->expectException(InvalidEnvConfigurationException::class);
 
-        self::assertSame($cipher, $kernel->env('db_password'));
+        (new BuildDomainKernelFromEnv())($projectRoot);
     }
 
     public function testHandlerDoesNotLeakAcrossProjectRootsOnOnePackerInstance(): void
     {
         // One packer, two roots: the first has a key file, the second has
-        // none — its secret value must stay raw. A shared DotEnv instance
-        // would carry the first root's handler over (accumulation).
-        $cipher = $this->encrypt('leak-check');
+        // none — so the second must NOT decrypt. A shared DotEnv instance
+        // would carry the first root's handler over (accumulation) and
+        // quietly resolve the cipher; with the handler correctly scoped per
+        // call, the second root has no handler at all and the O8 guard fires.
         $rootWithKey = $this->createProjectRoot(
             'DB_PASSWORD=' . $this->encrypt('first-root-plain') . "\n",
             withKeyFile: true,
         );
         $rootWithoutKey = $this->createProjectRoot(
-            'DB_PASSWORD=' . $cipher . "\n",
+            'DB_PASSWORD=' . $this->encrypt('leak-check') . "\n",
             withKeyFile: false,
         );
 
         $packer = new BuildDomainKernelFromEnv();
         $kernelWithKey = $packer($rootWithKey);
-        $kernelWithoutKey = $packer($rootWithoutKey);
 
         self::assertSame('first-root-plain', $kernelWithKey->env('db_password'));
-        self::assertSame($cipher, $kernelWithoutKey->env('db_password'));
+
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        $packer($rootWithoutKey);
     }
 }

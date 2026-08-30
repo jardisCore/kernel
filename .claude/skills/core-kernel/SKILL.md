@@ -1,6 +1,6 @@
 ---
 name: core-kernel
-description: jardiscore/kernel v2 - the immutable DomainKernel (11 nullable/typed accessors + container(), incl. eventListenerRegistry, messaging) plus the optional Bootstrap-Packer BuildDomainKernelFromEnv (projectRoot-based, `<projectRoot>/config/env` convention). DomainApp/BoundedContext/ServiceRegistry/Response pipeline were removed (Kernel-Entkopplung 2026-07) - the generated {Domain}Context now carries handle()/context()/resource()/payload()/version()/result(). TRIGGER: DomainKernel, DomainKernelInterface, projectRoot, BuildDomainKernelFromEnv, Bootstrap-Packer, eventListenerRegistry, messaging(). Formerly (now generated, not in this package): DomainApp, BoundedContext, ServiceRegistry, SharedRegistry, ContextResponse, DomainResponse.
+description: jardiscore/kernel v2 - the immutable DomainKernel (11 nullable/typed accessors + container(), incl. eventListenerRegistry, messaging) plus the optional Bootstrap-Packer BuildDomainKernelFromEnv (projectRoot-based: ONE `<projectRoot>/.env` plus its cascade, or an `.env`-formatted string; process environment always wins; secret key from APP_SECRET_KEY or `<projectRoot>/support/secret.key`). DomainApp/BoundedContext/ServiceRegistry/Response pipeline were removed (Kernel-Entkopplung 2026-07) - the generated {Domain}Context now carries handle()/context()/resource()/payload()/version()/result(). TRIGGER: DomainKernel, DomainKernelInterface, projectRoot, BuildDomainKernelFromEnv, Bootstrap-Packer, eventListenerRegistry, messaging(), .env im Root, envContent string mode, APP_SECRET_KEY, secret.key, InvalidEnvConfigurationException. Formerly (now generated, not in this package): DomainApp, BoundedContext, ServiceRegistry, SharedRegistry, ContextResponse, DomainResponse.
 user-invocable: false
 zone: post-active
 persona: C
@@ -46,12 +46,9 @@ Second breaking wave, tracked in `docs/env-konfiguration/` (repo
 `devops/jardis-app-template`, the run's home):
 
 - **`domainRoot()` → `projectRoot()` rename** (contracts v2.0.0). The packer
-  now takes the **project root**, not a config path — the fixed convention is
-  `<projectRoot>/config/env` (created via race-safe `mkdir` if missing; an
-  `mkdir` failure is the only case that throws, an empty/freshly-created
-  directory degrades every service to `null` like any other unconfigured
-  ENV). `DomainKernel::projectRoot()` returns exactly the path passed to the
-  packer's `__invoke()`, never the internal `config/env` path.
+  takes the **project root**, and since v2.4.0 that root is also where the ONE
+  `.env` lives (see the v2.4.0 section below). `DomainKernel::projectRoot()`
+  returns exactly the path passed to the packer's `__invoke()`.
 - **Dead `$_ENV` fallback removed.** `DomainKernel::env()` and the packer's
   internal `$envGet` closure read **only** the private ENV loaded from files
   — no lowercase-key lookup against the process environment (it never
@@ -119,13 +116,63 @@ Jardis Builder, not provided by this package.
 | `ServiceRegistry` | Static first-write-wins service sharing | **deleted** — no replacement; sharing is now explicit (same `DomainKernel` instance) |
 | `ContextResponse` / `DomainResponse` / `DomainResponseTransformer` / `ResponseStatus` | Response pipeline | **deleted from this package** — generated per domain under `{Domain}\Response\`; `ResponseStatus` moved to `jardissupport/contracts` |
 
+## Eine `.env` im Root (v2.4.0) — what changed
+
+- **One file, one place.** The packer reads `<projectRoot>/.env` plus DotEnv's
+  cascade (`.env` → `.env.local` → `.env.{APP_ENV}`, plus any `load()`/
+  `load?()` include). There is no `config/` layer any more, and the packer
+  **never creates a directory**. A project root without a `.env` is "nothing
+  configured": every service `null`, no error.
+- **String input, exclusive against the file.**
+  `__invoke(string $projectRoot, ?string $envContent = null)`. Pass an
+  `.env`-formatted string (e.g. a secrets-manager payload) and the file is not
+  read at all, not even per key. **`''` is a valid input** — the dateless
+  container, where every value comes from the process environment. The project
+  root still matters in string mode: relative `KEY_FILE=` paths and the
+  `support/secret.key` fallback resolve against it.
+- **The process environment always wins** (jardissupport/dotenv >= 1.4.0,
+  12-factor III) — in both modes, over file and string alike. Note for tests:
+  the phpcli image exports `APP_ENV=dev`, which therefore beats a fixture's own
+  `APP_ENV`; isolate it (save/restore `APP_ENV`, `APP_SECRET_KEY`,
+  `JARDIS_DOTENV_VARS`) or the cascade picks a different overlay than intended.
+- **Secret key chain (two steps, in this order).**
+  1. `APP_SECRET_KEY` in the **process environment** → `EnvKeyProvider`.
+  2. `<projectRoot>/support/secret.key` → `FileKeyProvider`.
+  3. Neither → no secret resolution.
+  ⚠️ **Henne-Ei:** the master key belongs in the process environment and
+  **never in a `.env` file** — a key written into the file would have to be
+  read by the very load it is meant to unlock, and it would sit in
+  `$kernel->env()` in plaintext. `docs/.env.example` therefore carries
+  `APP_SECRET_KEY` only as a comment. The key source is independent of the
+  value source: a key file applies to string input too.
+- **Unresolved `secret(...)` is loud (O8).** With no key at all, the packer
+  does **not** pass the cipher on as a value: `AssertNoUnresolvedSecret` throws
+  `JardisCore\Kernel\Exception\InvalidEnvConfigurationException` naming the ENV
+  key — **never the value** — before any adapter is built. (Before v2.4.0 the
+  cipher reached the handlers verbatim; that is the one behaviour change.)
+- **S4' — what may be encrypted.** `secret(...)` is for keys only the kernel
+  reads. A key that Docker Compose, `make` or CI also consumes must stay
+  plaintext: those readers pass the marker through verbatim, they do not
+  decrypt.
+- **Template:** `docs/.env.example` — ONE file in eight blocks
+  (`# === app ===`, `database`, `redis`, `cache`, `logger`, `http`, `mail`,
+  `messaging`). The block syntax is a **contract** the tooling reads (Builder
+  runtime catalogue, App-Template parity check), pinned by
+  `tests/Unit/Docs/EnvExampleContractTest.php`.
+- **Handler units** (all `Bootstrap\Handler\`): `LoadEnvForKernel` (owns the
+  string-vs-file decision, wires raw keys + secret handler once),
+  `NormalizeEnvKeys`, `ReadEnvValue`, `ReadProcessEnv`,
+  `ResolveSecretKeyProvider`, `BuildSecretHandler`, `AssertNoUnresolvedSecret`.
+  Their two v2.3 predecessors (the fixed-config-path loader and the
+  key-file-only secret builder) are deleted — see CHANGELOG v2.4.0.
+
 ## DOMAINKERNEL
 
 ```php
 use JardisCore\Kernel\DomainKernel;
 
 $kernel = new DomainKernel(
-    projectRoot: '/path/to/project',     // required — the git-clone target, NOT config/env itself
+    projectRoot: '/path/to/project',     // required — the git-clone target; its .env is what the packer reads
     container: $factory,                 // ?ContainerInterface
     cache: $cache,                       // ?CacheInterface
     logger: $logger,                     // ?LoggerInterface
@@ -164,7 +211,7 @@ no `kernel()` hook (that was `DomainApp`'s job — gone).
 ### Multi-domain sharing is still explicit
 
 ```php
-$kernel = (new BuildDomainKernelFromEnv())(__DIR__);   // project root, not config/env
+$kernel = (new BuildDomainKernelFromEnv())(__DIR__);   // project root; reads <projectRoot>/.env
 
 $ecommerce = new Ecommerce($kernel);   // same DomainKernel instance
 $billing   = new Billing($kernel);     // same DomainKernel instance -> same connection, cache, ...
@@ -179,20 +226,21 @@ sharing one — there is no static registry to fall back to anymore.
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 
 $packer = new BuildDomainKernelFromEnv();
-$kernel = $packer(__DIR__);   // project root; reads <projectRoot>/config/env (+ cascade) via DotEnv::loadPrivate()
+$kernel = $packer(__DIR__);              // project root; reads <projectRoot>/.env (+ cascade)
+$kernel = $packer(__DIR__, $payload);    // .env-formatted string instead of the file
+$kernel = $packer(__DIR__, '');          // dateless: everything from the process environment
 
 $ecommerce = new Ecommerce($kernel);
 ```
 
-- **One invokable class**, `__invoke(string $projectRoot): DomainKernel` — no
-  `static fromEnv()` (User-Entscheid, D4). Takes the **project root**, not a
-  config path (env-konfiguration R2/R3) — the fixed convention is
-  `<projectRoot>/config/env`, created via race-safe `mkdir` if missing.
-  `$kernel->projectRoot()` returns exactly the project root passed in, never
-  the internal `config/env` path.
-- **ENV cascade** via `JardisSupport\DotEnv\DotEnv::loadPrivate()` — the same
-  `load()`/`load?()` cascade every other Jardis config file understands.
-  Templates: `docs/env-examples/`. Credential-shaped keys
+- **One invokable class**,
+  `__invoke(string $projectRoot, ?string $envContent = null): DomainKernel` —
+  no `static fromEnv()` (User-Entscheid, D4). `$kernel->projectRoot()` returns
+  exactly the project root passed in.
+- **ENV cascade** via `JardisSupport\DotEnv\DotEnv::loadPrivate()` (file mode)
+  or `loadPrivateFromString()` (string mode) — the same `load()`/`load?()`
+  cascade every other Jardis config file understands. Template:
+  `docs/.env.example`. Credential-shaped keys
   (`Bootstrap\Data\CredentialEnvKeySuffixes`) are registered as DotEnv raw
   keys before loading, so `DB_PASSWORD=false`/`=123456` reach the handlers as
   literal strings, not cast `bool`/`int`.

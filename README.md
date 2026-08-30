@@ -98,37 +98,71 @@ provides the DomainKernel these generated classes consume.
 ### 3. Or: pack the DomainKernel from ENV
 
 For projects that want zero manual service wiring, `BuildDomainKernelFromEnv`
-assembles a DomainKernel from a cascading `.env` tree (templates:
-[`docs/env-examples/`](docs/env-examples/)). It takes the **project root**
-(the git-clone target), not a config path — the convention is a fixed
-`config/env` subdirectory, one project layout every Jardis project shares
-(see the `projekt-layout-konvention` Wissensbasis entry):
+assembles a DomainKernel from **one** `.env` in the project root (template:
+[`docs/.env.example`](docs/.env.example)). It takes the **project root** (the
+git-clone target) — there is no `config/` layer: every configuration value of
+a Jardis project lives exactly once, in that one file.
 
 ```php
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 
 $packer = new BuildDomainKernelFromEnv();
-$kernel = $packer(__DIR__);   // reads <projectRoot>/config/env (+ cascade)
+$kernel = $packer(__DIR__);   // reads <projectRoot>/.env (+ cascade)
 
 $ecommerce = new Ecommerce($kernel);
 ```
 
-If `<projectRoot>/config/env` does not exist yet, the packer creates it
-(`mkdir`, race-safe against a parallel fpm cold start) rather than throwing —
-an empty or freshly created directory just means "nothing configured yet",
-same as any other missing ENV key. The packer only throws when creating the
-directory itself fails (permissions, read-only filesystem).
+The cascade is DotEnv's usual one: `.env` -> `.env.local` -> `.env.{APP_ENV}`,
+plus any `load()`/`load?()` include you write yourself. A project root without
+a `.env` is simply "nothing configured yet" — every service degrades to `null`,
+nothing throws, and no directory is created.
+
+**The process environment always wins.** Since `jardissupport/dotenv` 1.4.0 a
+key already set in the process environment beats the file value (12-factor
+III), so the same image runs with a `.env` on a developer machine and with
+`environment:` entries in production without a code change.
+
+**No file at all?** Hand the packer the configuration as a string:
+
+```php
+$kernel = $packer(__DIR__, $secretsManagerPayload);   // .env-formatted string
+$kernel = $packer(__DIR__, '');                       // everything from the environment
+```
+
+The string mode is **exclusive against the file**: `<projectRoot>/.env` is not
+read, not even per key — the empty string is a valid input meaning "the
+process environment is the whole configuration". The project root still
+matters in string mode: relative `KEY_FILE=` paths and the
+`support/secret.key` fallback resolve against it.
+
+#### Encrypted values (`secret(...)`)
+
+The encryption key is looked up in exactly two places, in this order:
+
+1. **`APP_SECRET_KEY` in the process environment** — the master key belongs
+   there and **never in a `.env` file**. A key written into the file would
+   have to be read by the very load it is supposed to unlock, and it would sit
+   in the kernel's `env()` array in plaintext.
+2. **`<projectRoot>/support/secret.key`** — the file fallback, for setups
+   that mount a key rather than export it.
+
+With neither, a `secret(...)` value cannot be resolved. It is then **not**
+passed on as a cipher: the packer throws
+`JardisCore\Kernel\Exception\InvalidEnvConfigurationException` naming the ENV
+key (never the value) before any adapter is built. The key source is
+independent of the value source — a key file applies to string input too.
 
 `BuildDomainKernelFromEnv` wires nine services (cache, logger, event
 dispatcher + listener registry, HTTP client, DB connection, mailer,
 filesystem, messaging) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
 `REDIS_*` / `MESSAGING_*` / `MESSAGING_DB_*` / `KAFKA_*` / `RABBITMQ_*` ENV keys — see
-[`docs/env-examples/README.md`](docs/env-examples/README.md) for the full key
-reference. The resulting packed `DomainKernel` exposes twelve accessors in
+[`docs/.env.example`](docs/.env.example) for the full key reference, grouped
+into the eight blocks (`app`, `database`, `redis`, `cache`, `logger`, `http`,
+`mail`, `messaging`) the tooling reads. The resulting packed `DomainKernel` exposes twelve accessors in
 total (the nine services above, plus `projectRoot()`, `env()`, and
 `container()`, which are not ENV-wired services — see the accessor table
-below). `projectRoot()` returns the project root passed to the packer, not
-the internal `config/env` path it reads from. Every adapter it can use
+below). `projectRoot()` returns the project root passed to the packer, which
+is also the directory its `.env` is read from. Every adapter it can use
 (`jardisadapter/cache`, `jardisadapter/dbconnection`,
 `jardisadapter/eventdispatcher`, `jardisadapter/filesystem`,
 `jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`,
@@ -190,7 +224,7 @@ first-write-wins `ServiceRegistry`, G11) — sharing services across domains is
 now an explicit choice, not implicit global state:
 
 ```php
-$kernel = (new BuildDomainKernelFromEnv())(__DIR__);   // project root, reads config/env
+$kernel = (new BuildDomainKernelFromEnv())(__DIR__);   // project root, reads <projectRoot>/.env
 
 $ecommerce = new Ecommerce($kernel);   // same DomainKernel instance
 $billing   = new Billing($kernel);     // same DomainKernel instance -> same connection, cache, ...
@@ -213,7 +247,7 @@ $billing = new Billing($billingKernel);
 For application servers and read replicas, install `jardisadapter/dbconnection`
 and pass a `ConnectionPool` instead of plain PDO — either directly, or let
 `BuildDomainKernelFromEnv` build one from `DB_READER{N}_HOST` ENV keys (see
-[`docs/env-examples/.env.database.example`](docs/env-examples/.env.database.example)):
+[`docs/.env.example`](docs/.env.example), block `database`):
 
 ```php
 use JardisAdapter\DbConnection\ConnectionPool;
@@ -239,7 +273,7 @@ Everything downstream (`$kernel->dbConnection()`) doesn't change.
 
 When `BuildDomainKernelFromEnv` builds the pool, five optional `DB_POOL_*`
 keys tune its `ConnectionPoolConfig` (see
-[`docs/env-examples/.env.database.example`](docs/env-examples/.env.database.example)):
+[`docs/.env.example`](docs/.env.example), block `database`):
 `DB_POOL_VALIDATE_CONNECTIONS`, `DB_POOL_HEALTH_CHECK_CACHE_TTL`,
 `DB_POOL_HEALTH_CHECK_NEGATIVE_CACHE_TTL`, `DB_POOL_LOAD_BALANCING_STRATEGY`
 (`round-robin` | `random`) and `DB_POOL_STICKY_WRITER`
@@ -265,6 +299,7 @@ key they read:
 | Key not set, or set to an empty value (`KEY=`) | `null` — the service degrades gracefully |
 | Key set to an unparsable/invalid value (e.g. `HTTP_VERIFY_SSL=maybe`, an unknown `DB_POOL_LOAD_BALANCING_STRATEGY`) | throws `JardisCore\Kernel\Exception\InvalidEnvConfigurationException` |
 | Key set, service configured, but unreachable (DB/Redis connection fails) | throws `InvalidEnvConfigurationException` |
+| Key holds an unresolvable `secret(...)` value (no `APP_SECRET_KEY`, no `support/secret.key`) | throws `InvalidEnvConfigurationException` naming the KEY, never the value — before any adapter is built |
 | An ENV key the packer does not recognize | ignored |
 
 Boolean ENV keys (`HTTP_VERIFY_SSL`, `DB_POOL_VALIDATE_CONNECTIONS`,
@@ -276,6 +311,13 @@ replaces). Credential-shaped keys (`*_PASSWORD`, `*_USER`, `*_SECRET`,
 `*_TOKEN`) are registered as DotEnv raw keys before loading — they reach
 their handler as the literal string instead of a cast `bool`/`int`
 (`DB_PASSWORD=false` stays `'false'`, not `bool(false)`).
+
+The one thing that is *not* a degradation is an unresolved `secret(...)`
+value. Passing a cipher on as if it were a password, a host or a token fails
+later, elsewhere, and unintelligibly — so the packer stops at boot, names the
+ENV key and points at the two key sources (`APP_SECRET_KEY` in the process
+environment, `<projectRoot>/support/secret.key`). The exception message never
+contains the value.
 
 ---
 
@@ -356,7 +398,7 @@ DomainKernel.
 | `jardissupport/contracts` | Interface contracts (`DomainKernelInterface`, `EventListenerRegistryInterface`, etc.) |
 | `jardissupport/classversion` | Versioned class resolution via namespace injection |
 | `jardissupport/factory` | PSR-11 Container + class instantiation |
-| `jardissupport/dotenv` (^1.2) | Cascading `.env` loading — used by `BuildDomainKernelFromEnv`; `^1.2` for `addRawKeys()` (credential cast exemption) |
+| `jardissupport/dotenv` (^1.5) | Cascading `.env` loading — used by `BuildDomainKernelFromEnv`; `^1.5` for `addRawKeys()` (credential cast exemption), process-environment precedence (>= 1.4.0) and `loadPrivateFromString()` |
 
 **Optional (composer suggest, used by `Bootstrap\BuildDomainKernelFromEnv`):**
 
@@ -377,6 +419,9 @@ DomainKernel.
 Full documentation, guides, and API reference:
 
 **[docs.jardis.io/en/core/kernel](https://docs.jardis.io/en/core/kernel)**
+
+ENV key reference: [`docs/.env.example`](docs/.env.example) — the one
+configuration template, in eight blocks.
 
 ---
 
