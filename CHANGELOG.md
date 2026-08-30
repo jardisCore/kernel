@@ -3,6 +3,14 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.1] — 2026-08-30 — `_FILE` values are read only for absolute paths
+
+### Changed
+- Requires `jardissupport/dotenv` `^1.6`: a `KEY_FILE=` value is read from disk
+  only when the path is absolute; a relative value stays a plain string. README
+  and the `core-kernel` skill promised project-root-relative resolution — true
+  with dotenv 1.5 only, corrected here (test K9q).
+
 ## [2.4.0] — 2026-08-30 — One `.env` in the project root (env-kollisionen, Phase K)
 
 Every configuration value of a Jardis project now lives exactly once, in ONE
