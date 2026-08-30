@@ -6,13 +6,15 @@ namespace JardisCore\Kernel\Tests\Support;
 
 use Closure;
 use JardisCore\Kernel\Bootstrap\Data\CredentialEnvKeySuffixes;
+use JardisCore\Kernel\Bootstrap\Handler\NormalizeEnvKeys;
+use JardisCore\Kernel\Bootstrap\Handler\ReadEnvValue;
 use JardisSupport\DotEnv\DotEnv;
 
 /**
  * Builds a Handler-shaped `Closure(string): mixed` from a REAL DotEnv cascade
- * over a fixture directory — mirrors `BuildDomainKernelFromEnv`'s own
- * `$envGet` (raw-key registration, lowercase keys, `''` -> `null`), minus the
- * `$_ENV` fallback (irrelevant for isolated Handler tests).
+ * over a fixture project root — mirrors `BuildDomainKernelFromEnv`'s own
+ * `$envGet` by reusing the very units it is built from (raw-key registration,
+ * {@see NormalizeEnvKeys}, {@see ReadEnvValue}), so the two can never drift.
  *
  * Exists so Integration tests can exercise Handlers against values that
  * actually passed through DotEnv's cast chain instead of a synthetic
@@ -22,15 +24,13 @@ use JardisSupport\DotEnv\DotEnv;
 final class LoadEnvGetFromRealCascade
 {
     /** @return Closure(string): mixed */
-    public function __invoke(string $configPath): Closure
+    public function __invoke(string $projectRoot): Closure
     {
         $dotEnv = new DotEnv();
         $dotEnv->addRawKeys(CredentialEnvKeySuffixes::SUFFIXES);
-        $env = array_change_key_case($dotEnv->loadPrivate($configPath), CASE_LOWER);
+        $env = (new NormalizeEnvKeys())($dotEnv->loadPrivate($projectRoot));
+        $readEnvValue = (new ReadEnvValue())->__invoke(...);
 
-        return static function (string $key) use ($env): mixed {
-            $value = $env[strtolower($key)] ?? null;
-            return $value === '' ? null : $value;
-        };
+        return static fn (string $key): mixed => $readEnvValue($env, $key);
     }
 }

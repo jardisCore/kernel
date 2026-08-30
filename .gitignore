@@ -17,10 +17,10 @@ composer.lock
 .claude/cache/
 
 # docs/ wird lokal gehalten, nicht committet (inkl. Session-Handover-Doku)
-# Ausnahme: docs/env-examples/ ist ein committetes Package-Artefakt (Kernel-Entkopplung P2,
-# .env-Vorlagen fuer den Bootstrap-Packer) — kein Session-Scratch.
+# Ausnahme: docs/.env.example ist ein committetes Package-Artefakt (env-kollisionen K.5,
+# die EINE .env-Vorlage fuer den Bootstrap-Packer) — kein Session-Scratch.
 docs/*
-!docs/env-examples/
+!docs/.env.example
 
 # dev-skills Skill-Backups — lokal, nie committen
 .claude/skills/*.backup/

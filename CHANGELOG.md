@@ -3,6 +3,71 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] — 2026-08-30 — One `.env` in the project root (env-kollisionen, Phase K)
+
+Every configuration value of a Jardis project now lives exactly once, in ONE
+plaintext `.env` in the project root. The process environment always wins over
+it (12-factor III), and a container without any file is a first-class case.
+
+### Changed
+
+- **`config/env` is gone.** `BuildDomainKernelFromEnv` reads
+  `<projectRoot>/.env` plus DotEnv's cascade (`.env` → `.env.local` →
+  `.env.{APP_ENV}`) instead of `<projectRoot>/config/env`. The packer no
+  longer creates any directory: the `mkdir` branch and its
+  `RuntimeException` are removed. A project root without a `.env` is
+  "nothing configured" — every service degrades to `null`, nothing throws.
+- **The process environment wins over the file** — inherited from
+  `jardissupport/dotenv` >= 1.4.0, now a required floor (`^1.5`). A key set in
+  the process environment beats the parsed value, including `APP_ENV`, which
+  therefore selects the cascade overlay.
+- **Secret key chain (O9).** The encryption key is looked up in
+  `APP_SECRET_KEY` (process environment) first, then in
+  `<projectRoot>/support/secret.key`. Previously only the key file was
+  consulted. The master key belongs in the process environment and never in a
+  `.env` file — `docs/.env.example` carries it as a comment only.
+- **`docs/env-examples/` (eight files + README) replaced by one
+  `docs/.env.example`** in eight `# === <block> ===` blocks (`app`,
+  `database`, `redis`, `cache`, `logger`, `http`, `mail`, `messaging`). The
+  block syntax is a contract the surrounding tooling reads; a Unit test pins
+  it and the key inventory of the eight predecessors.
+- `jardissupport/dotenv` requirement raised `^1.3` → `^1.5`;
+  `jardissupport/secret` (require-dev/suggest) `^1.0` → `^1.1` for
+  `Secret::matches()`.
+
+### Added
+
+- **String input.**
+  `BuildDomainKernelFromEnv::__invoke(string $projectRoot, ?string $envContent = null)`
+  — pass `.env`-formatted content (e.g. a secrets-manager payload) and the
+  file is not read at all, not even per key. **`''` is a valid input**: the
+  dateless container, where every value arrives through the process
+  environment. The project root still resolves relative `KEY_FILE=` paths and
+  the `support/secret.key` fallback.
+- `Bootstrap\Handler\LoadEnvForKernel` (owns the string-vs-file decision and
+  wires raw keys + secret handler once for both modes),
+  `Bootstrap\Handler\NormalizeEnvKeys`, `Bootstrap\Handler\ReadEnvValue`,
+  `Bootstrap\Handler\ReadProcessEnv`,
+  `Bootstrap\Handler\ResolveSecretKeyProvider`,
+  `Bootstrap\Handler\BuildSecretHandler`,
+  `Bootstrap\Handler\AssertNoUnresolvedSecret`.
+
+### Removed
+
+- `Bootstrap\Handler\LoadEnvFromConfigPath` — replaced by `LoadEnvForKernel`.
+- `Bootstrap\Handler\BuildSecretHandlerFromKeyFile` — replaced by
+  `ResolveSecretKeyProvider` + `BuildSecretHandler`.
+- `docs/env-examples/` — replaced by `docs/.env.example`.
+
+### Fixed (behaviour change)
+
+- **An unresolvable `secret(...)` value no longer reaches the handlers
+  verbatim.** With no key at all, the packer aborted nothing before and passed
+  the cipher on as if it were a password, a host or a token — a failure that
+  surfaced later, elsewhere and unintelligibly. It now throws
+  `Exception\InvalidEnvConfigurationException` naming the ENV key, and the two
+  key sources, **never the value**, before any adapter is built.
+
 ## [2.0.1] — 2026-08-22
 
 Documentation-only release (env-konfiguration, P6): "Koffer" renamed to
