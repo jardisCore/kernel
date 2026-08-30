@@ -128,8 +128,7 @@ Jardis Builder, not provided by this package.
   `.env`-formatted string (e.g. a secrets-manager payload) and the file is not
   read at all, not even per key. **`''` is a valid input** — the dateless
   container, where every value comes from the process environment. The project
-  root still matters in string mode: relative `KEY_FILE=` paths and the
-  `support/secret.key` fallback resolve against it.
+  root still matters in string mode: the `support/secret.key` fallback resolves against it. `KEY_FILE=` values are read from disk only when the path is absolute (`jardissupport/dotenv` >= 1.6); a relative `_FILE` value stays a plain string — `COMPOSE_FILE`, `NGINX_INDEX_FILE` and the like are names, not secret mounts.
 - **The process environment always wins** (jardissupport/dotenv >= 1.4.0,
   12-factor III) — in both modes, over file and string alike. Note for tests:
   the phpcli image exports `APP_ENV=dev`, which therefore beats a fixture's own

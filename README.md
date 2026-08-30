@@ -131,9 +131,7 @@ $kernel = $packer(__DIR__, '');                       // everything from the env
 
 The string mode is **exclusive against the file**: `<projectRoot>/.env` is not
 read, not even per key — the empty string is a valid input meaning "the
-process environment is the whole configuration". The project root still
-matters in string mode: relative `KEY_FILE=` paths and the
-`support/secret.key` fallback resolve against it.
+process environment is the whole configuration". The project root still matters in string mode: the `support/secret.key` fallback resolves against it. `KEY_FILE=` values are read from disk only when the path is absolute (`jardissupport/dotenv` >= 1.6); a relative `_FILE` value stays a plain string — `COMPOSE_FILE`, `NGINX_INDEX_FILE` and the like are names, not secret mounts.
 
 #### Encrypted values (`secret(...)`)
 

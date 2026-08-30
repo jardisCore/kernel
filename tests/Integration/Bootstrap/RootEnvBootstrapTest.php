@@ -301,13 +301,20 @@ final class RootEnvBootstrapTest extends TestCase
     }
 
     // (q)
-    public function testK9q_FileSuffixPathResolvesRelativeToTheProjectRootInStringMode(): void
+    public function testK9q_FileSuffixIsReadOnlyForAnAbsolutePath(): void
     {
+        // dotenv >= 1.6 (env-kollisionen G3): a relative `_FILE` value is a plain
+        // string (COMPOSE_FILE, NGINX_INDEX_FILE are names, not secret mounts);
+        // only an absolute path is read from disk — nothing resolves against
+        // the project root any more.
         $projectRoot = $this->makeRoot(['support/db_password.txt' => "file-borne-secret\n"]);
 
-        $kernel = (new BuildDomainKernelFromEnv())($projectRoot, "DB_PASSWORD_FILE=support/db_password.txt\n");
+        $relative = (new BuildDomainKernelFromEnv())($projectRoot, "DB_PASSWORD_FILE=support/db_password.txt\n");
+        self::assertSame('support/db_password.txt', $relative->env('db_password_file'));
+        self::assertNull($relative->env('db_password'));
 
-        self::assertSame('file-borne-secret', $kernel->env('db_password'));
+        $absolute = (new BuildDomainKernelFromEnv())($projectRoot, 'DB_PASSWORD_FILE=' . $projectRoot . "/support/db_password.txt\n");
+        self::assertSame('file-borne-secret', $absolute->env('db_password'));
     }
 
     // (r)
