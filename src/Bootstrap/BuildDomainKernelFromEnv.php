@@ -15,14 +15,18 @@ use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMailerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMessagingFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
-use JardisCore\Kernel\Bootstrap\Handler\BuildSecretHandlerFromKeyFile;
+use JardisCore\Kernel\Bootstrap\Handler\AssertNoUnresolvedSecret;
+use JardisCore\Kernel\Bootstrap\Handler\BuildSecretHandler;
 use JardisCore\Kernel\Bootstrap\Handler\ExtractPdoFromConnection;
-use JardisCore\Kernel\Bootstrap\Handler\LoadEnvFromConfigPath;
+use JardisCore\Kernel\Bootstrap\Handler\LoadEnvForKernel;
+use JardisCore\Kernel\Bootstrap\Handler\NormalizeEnvKeys;
+use JardisCore\Kernel\Bootstrap\Handler\ReadEnvValue;
+use JardisCore\Kernel\Bootstrap\Handler\ResolveSecretKeyProvider;
 use JardisCore\Kernel\DomainKernel;
-use RuntimeException;
 
 /**
- * Packs a {@see DomainKernel} from a config path's cascading `.env` files.
+ * Packs a {@see DomainKernel} from a project root's `.env` — or from an
+ * `.env`-formatted string.
  *
  * The Application-side counterpart to `DomainKernel` itself
  * (Kernel-Entkopplung D4/A6/Z3) — `jardiscore/kernel`'s optional offer for
@@ -30,21 +34,27 @@ use RuntimeException;
  * One invokable class, Tätigkeitsname (`BuildDomainKernelFromEnv`), no
  * `static fromEnv()` (User-Entscheid).
  *
- * Takes the **project root** (the git-clone target), not a config path —
- * the fixed convention is `<projectRoot>/config/env` (R2, G1/G2/G8). Missing?
- * The packer creates it (`mkdir`, race-safe against a parallel fpm cold
- * start); an empty or freshly created directory degrades every service to
- * `null` like any other unconfigured ENV. An `mkdir` failure (permissions,
- * read-only filesystem) is the only case that throws — everything else
- * about a missing directory is "not configured", not an error.
+ * Takes the **project root** (the git-clone target). Every configuration value
+ * of a Jardis project lives exactly once, in ONE plaintext `.env` in that root
+ * — there is no `config/` layer, and this packer never creates a directory.
+ * A project root without a `.env` is simply "nothing configured": every
+ * service degrades to `null`, no error.
  *
- * ENV loading uses `DotEnv::loadPrivate()` — the same `load()`/`load?()`
- * cascade every other Jardis config file understands (templates:
- * `docs/env-examples/`). The resulting kernel's `projectRoot()` returns the
- * project root passed in here, not the internal `config/env` path — the
- * packer builds one kernel per project root; multiple domains sharing one
- * project root share the same `DomainKernel` instance (explicit sharing,
- * G11 — no more implicit first-write-wins registry).
+ * Two mutually exclusive input modes, decided inside {@see LoadEnvForKernel}:
+ *  - `$envContent === null` — read `<projectRoot>/.env` plus DotEnv's cascade
+ *    (`.env` -> `.env.local` -> `.env.{APP_ENV}` and any `load()`/`load?()`
+ *    include). Template: `docs/.env.example`.
+ *  - a string (INCLUDING `''`) — that string IS the configuration; the file is
+ *    not read at all. The dateless container case, where every value arrives
+ *    through the process environment.
+ *
+ * In BOTH modes the process environment wins over the parsed value
+ * (jardissupport/dotenv >= 1.4.0) — one 12-factor rule, no kernel-side
+ * fallback of its own ({@see DomainKernel::env()} stays file-/string-pure).
+ *
+ * The resulting kernel's `projectRoot()` returns the project root passed in —
+ * the packer builds one kernel per project root; multiple domains sharing one
+ * project root share the same `DomainKernel` instance (explicit sharing, G11).
  *
  * Redis fan-out (D4): one Redis connection, built once, feeds both the cache
  * (`redis` layer) and the logger (`redis` handler) — named sub-closures
@@ -63,23 +73,28 @@ use RuntimeException;
  * fallback; callers needing a custom PSR-11 container build their own
  * `DomainKernel` directly.
  *
- * Credential-shaped keys ({@see LoadEnvFromConfigPath},
+ * Credential-shaped keys ({@see LoadEnvForKernel},
  * `CredentialEnvKeySuffixes`) are registered as DotEnv raw keys before
  * loading — `DB_PASSWORD=false`/`=123456` reach the handlers as the literal
  * string, not a cast `bool`/`int` (R1.2, G6).
  *
- * Secret resolution: when `<projectRoot>/support/secret.key` exists and
- * jardissupport/secret is installed, a `SecretHandler` is prepended to the
- * DotEnv chain so `secret(...)` values decrypt before any cast handler runs;
- * credential raw keys skip only the cast handlers — value handlers still
- * reach them (dotenv >= 1.3). No key file or missing package skips
- * resolution silently, like every other optional adapter. DotEnv itself is
- * built fresh per call, so handlers never accumulate across project roots.
+ * Secret resolution: the encryption key comes from `APP_SECRET_KEY` in the
+ * process environment, else from `<projectRoot>/support/secret.key`
+ * ({@see ResolveSecretKeyProvider}); with a key, a `SecretHandler` is
+ * prepended to the DotEnv chain so `secret(...)` values decrypt before any
+ * cast handler runs. Without any key, an encrypted value cannot be resolved —
+ * and instead of passing the cipher on as a value, the boot stops
+ * ({@see AssertNoUnresolvedSecret}). DotEnv itself is built fresh per call, so
+ * handlers never accumulate across project roots.
  */
 final class BuildDomainKernelFromEnv
 {
     private readonly Closure $loadEnv;
+    private readonly Closure $normalizeEnvKeys;
+    private readonly Closure $readEnvValue;
+    private readonly Closure $resolveSecretKeyProvider;
     private readonly Closure $buildSecretHandler;
+    private readonly Closure $assertNoUnresolvedSecret;
     private readonly Closure $buildConnection;
     private readonly Closure $extractPdo;
     private readonly Closure $buildRedis;
@@ -94,8 +109,12 @@ final class BuildDomainKernelFromEnv
 
     public function __construct()
     {
-        $this->loadEnv = (new LoadEnvFromConfigPath())->__invoke(...);
-        $this->buildSecretHandler = (new BuildSecretHandlerFromKeyFile())->__invoke(...);
+        $this->loadEnv = (new LoadEnvForKernel())->__invoke(...);
+        $this->normalizeEnvKeys = (new NormalizeEnvKeys())->__invoke(...);
+        $this->readEnvValue = (new ReadEnvValue())->__invoke(...);
+        $this->resolveSecretKeyProvider = (new ResolveSecretKeyProvider())->__invoke(...);
+        $this->buildSecretHandler = (new BuildSecretHandler())->__invoke(...);
+        $this->assertNoUnresolvedSecret = (new AssertNoUnresolvedSecret())->__invoke(...);
         $this->buildConnection = (new BuildConnectionFromEnv())->__invoke(...);
         $this->extractPdo = (new ExtractPdoFromConnection())->__invoke(...);
         $this->buildRedis = (new BuildRedisFromEnv())->__invoke(...);
@@ -109,30 +128,21 @@ final class BuildDomainKernelFromEnv
         $this->buildMessaging = (new BuildMessagingFromEnv())->__invoke(...);
     }
 
-    public function __invoke(string $projectRoot): DomainKernel
+    public function __invoke(string $projectRoot, ?string $envContent = null): DomainKernel
     {
-        $configPath = $projectRoot . '/config/env';
+        $secretHandler = ($this->buildSecretHandler)(($this->resolveSecretKeyProvider)($projectRoot));
+        $rawEnv = ($this->loadEnv)($projectRoot, $envContent, $secretHandler);
 
-        // Race-safe: a parallel fpm cold start may create the directory
-        // between the is_dir() check and mkdir() — re-check after a failed
-        // mkdir() before treating it as a real failure (TOCTOU, G1).
-        if (!is_dir($configPath) && !@mkdir($configPath, 0775, true) && !is_dir($configPath)) {
-            throw new RuntimeException(sprintf('Failed to create config directory "%s".', $configPath));
+        if ($secretHandler === null) {
+            // No key, so nothing could have decrypted: a surviving
+            // `secret(...)` value is a config error, checked on the raw keys
+            // before any adapter is built.
+            ($this->assertNoUnresolvedSecret)($rawEnv);
         }
 
-        $env = array_change_key_case(
-            ($this->loadEnv)($configPath, ($this->buildSecretHandler)($projectRoot)),
-            CASE_LOWER,
-        );
-        $envGet = static function (string $key) use ($env): mixed {
-            $value = $env[strtolower($key)] ?? null;
-            // An explicitly empty value (`KEY=`) is "missing", not "set to
-            // the empty string" — one place instead of every Handler doing
-            // its own '' check (R1.3 rule 1, uniform across all handlers).
-            // No global-process-environment fallback (R3, G16) — file-only,
-            // see DomainKernel::env().
-            return $value === '' ? null : $value;
-        };
+        $env = ($this->normalizeEnvKeys)($rawEnv);
+        $readEnvValue = $this->readEnvValue;
+        $envGet = static fn (string $key): mixed => $readEnvValue($env, $key);
 
         $connection = ($this->buildConnection)($envGet);
         // One extraction, two consumers: the optional `db` cache layer and
