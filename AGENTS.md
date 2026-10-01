@@ -19,7 +19,7 @@ https://docs.jardis.io/en/core/kernel
 
 Aggregated by `jardis/dev-skills`. Run `composer install` to refresh.
 
-Before hand-building a reusable building block, consult the `jardis-catalog` skill to check for an installable Jardis package. For the full workflow from schema to implementation, start with the `jardis-start-here` skill.
+Before hand-building a reusable building block, consult the `packages-find-existing` skill to check for an installable Jardis package. For the full workflow from schema to implementation, start with the `start-orientation` skill.
 
 <!-- source: jardis/dev-skills -->
 # jardis/dev-skills — Agent Notes
@@ -30,13 +30,13 @@ Composer plugin that distributes Jardis skills (`<vendor>/.claude/skills/<name>/
 
 - **Discovery** of skills from `vendor/jardis*/*/.claude/skills/*/SKILL.md` and from this repo's own `skills/` directory.
 - **Bundle skills** (opt-in via `extra."jardis/dev-skills"."bundled-skills"`) covering Jardis methodology:
-  - `schema-authoring` — pre-Designer Schema.yaml authoring (companion `examples/Schema.yaml`)
-  - `platform-implementation` — extending Designer-generated PHP code (Extensions/ layout, ClassVersion v2 override mechanics, V1–V12 prohibitions)
-  - `platform-usage` — wiring Designer-generated Commands/Queries into a transport (HTTP / CLI / queue / worker), DomainResponse mapping
-  - `platform-versioning` — ClassVersion resolution chain + the Versionierungs-Modell for Designer-generated code
-  - `platform-workflow` — Workflow-Engine API consumed by FlowDesigner-generated Use-Case orchestrators
-  - `platform-cookbook` — Phase-3 recipes, troubleshooting, and event transport for Designer-generated code
-  - `rules-architecture` / `rules-frontend` / `rules-patterns` / `rules-testing` — cross-cutting rules (`rules-frontend` = stack-agnostic FE review constitution)
+  - `design-draft-schema` — pre-Designer Schema.yaml authoring (companion `examples/Schema.yaml`)
+  - `generated-code-extend` — extending Designer-generated PHP code (Extensions/ layout, ClassVersion v2 override mechanics, V1–V12 prohibitions)
+  - `generated-code-wire-transport` — wiring Designer-generated Commands/Queries into a transport (HTTP / CLI / queue / worker), DomainResponse mapping
+  - `generated-code-versioning` — ClassVersion resolution chain + the Versionierungs-Modell for Designer-generated code
+  - `generated-code-workflow-api` — Workflow-Engine API consumed by FlowDesigner-generated Use-Case orchestrators
+  - `generated-code-recipes` — Phase-3 recipes, troubleshooting, and event transport for Designer-generated code
+  - `foundation-architecture` / `foundation-frontend-review` / `foundation-patterns` / `foundation-testing` — cross-cutting rules (`foundation-frontend-review` = stack-agnostic FE review constitution)
 - **Managed prefixes:** `adapter-`, `core-`, `support-`, `tools-`, `schema-`, `plan-`, `platform-`, `rules-`. Skills with these prefixes are installed/removed by the plugin; skills without them belong to the user.
 - **AGENTS.md aggregation** between markers `<!-- BEGIN jardis/dev-skills ... -->` / `<!-- END jardis/dev-skills -->`. User content outside the markers is preserved. A source package's own managed block is stripped before embedding (`Handler/Install/StripManagedBlock`), so the result is always a single, non-nested block. `*.backup` skill directories are skipped during discovery and never re-backed-up.
 
@@ -53,7 +53,7 @@ Composer plugin that distributes Jardis skills (`<vendor>/.claude/skills/<name>/
 - Do not introduce a new top-level skill prefix without updating `RemoveJardisSkills::MANAGED_PREFIXES` and `docs/SKILL-FORMAT.md` §2.
 - Do not edit a generated AGENTS.md block in a consumer project — the plugin overwrites it on next install.
 - Do not bypass `TempProject` in tests with raw `tempnam()` / hardcoded paths.
-- Do not duplicate content across bundle skills. Patterns live only in `rules-patterns`, architecture only in `rules-architecture`, frontend review rules only in `rules-frontend`, test rules only in `rules-testing`, generated-code layout only in `platform-implementation` §1, transport wiring only in `platform-usage`. Designer YAML vocabulary (Aggregate / Source / FieldMap / Lists / Flow) lives in `tools-builder-engine` in the Builder repo — outside this bundle. Other skills link.
+- Do not duplicate content across bundle skills. Patterns live only in `foundation-patterns`, architecture only in `foundation-architecture`, frontend review rules only in `foundation-frontend-review`, test rules only in `foundation-testing`, generated-code layout only in `generated-code-extend` §1, transport wiring only in `generated-code-wire-transport`. Designer YAML vocabulary (Aggregate / Source / FieldMap / Lists / Flow) lives in `tools-builder-engine` in the Builder repo — outside this bundle. Other skills link.
 
 ## Pointers
 

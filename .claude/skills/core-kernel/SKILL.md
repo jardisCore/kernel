@@ -4,8 +4,8 @@ description: jardiscore/kernel v2 - the immutable DomainKernel (11 nullable/type
 user-invocable: false
 zone: post-active
 persona: C
-prerequisites: [rules-architecture, rules-patterns]
-next: [platform-implementation, core-app]
+prerequisites: [foundation-architecture, foundation-patterns]
+next: [generated-code-extend, core-app]
 ---
 
 # KERNEL_COMPONENT_SKILL
@@ -24,7 +24,7 @@ hexagonal inner rings. The former domain-side classes are **deleted**:
   `handle()`/`context()` (now `protected`), `resource()/payload()/version()/
   result()`) and the **Response-Trio** (`ContextResponse`/`DomainResponse`/
   `DomainResponseTransformer`) per domain, under `{Domain}\Response\`. See
-  the `platform-implementation` skill for that generated-code contract — this
+  the `generated-code-extend` skill for that generated-code contract — this
   package does **not** define those classes anymore.
 - **Shared vocabulary moved to `jardissupport/contracts`:** `ResponseStatus`
   (enum), `GeneratedContextInterface` (the D5 marker every generated
@@ -91,7 +91,7 @@ DomainKernel implements DomainKernelInterface (immutable,
     ↓ passed to
 new {Domain}($kernel)               ← generated Domain facade (final, JardisCore-free)
     ↓ new {BC}($kernel)              ← generated BC facade, extends {Domain}Context
-{Domain}Context                     ← GENERATED per domain (platform-implementation skill)
+{Domain}Context                     ← GENERATED per domain (generated-code-extend skill)
     handle()/context() (Kernel-Naht, protected) · resource()/payload()/version()/result()
     ↓ result()
 ContextResponse (GENERATED) → DomainResponseTransformer (GENERATED) → DomainResponse (GENERATED)
@@ -112,7 +112,7 @@ Jardis Builder, not provided by this package.
 | `Bootstrap\Data\CredentialEnvKeySuffixes` | Constant list of credential-shaped ENV key suffixes registered as DotEnv raw keys before `loadPrivate()` | **current** |
 | `Exception\InvalidEnvConfigurationException` | Thrown for unparsable bool values and invalid-but-configured settings (pool strategy, `MESSAGING_TRANSPORT`, unreachable configured host) — never for merely absent config | **current** |
 | `DomainApp` | Lazy kernel bootstrap, ClassVersion hooks, service sharing, `kernel()`/`handle()` | **deleted** — no replacement class; the generated Domain facade is `final` and holds only the `DomainKernel` |
-| `BoundedContext` | Use-case handler base (`handle()`/`context()`, Factory + ClassVersion) | **deleted** — ported 1:1 into the generated `{Domain}Context` (`platform-implementation`) |
+| `BoundedContext` | Use-case handler base (`handle()`/`context()`, Factory + ClassVersion) | **deleted** — ported 1:1 into the generated `{Domain}Context` (`generated-code-extend`) |
 | `ServiceRegistry` | Static first-write-wins service sharing | **deleted** — no replacement; sharing is now explicit (same `DomainKernel` instance) |
 | `ContextResponse` / `DomainResponse` / `DomainResponseTransformer` / `ResponseStatus` | Response pipeline | **deleted from this package** — generated per domain under `{Domain}\Response\`; `ResponseStatus` moved to `jardissupport/contracts` |
 
@@ -298,7 +298,7 @@ design).
 ## THE GENERATED SIDE (not in this package)
 
 Everything downstream of `DomainKernel` is generated per domain by the Jardis
-Builder — see `platform-implementation` for the full contract:
+Builder — see `generated-code-extend` for the full contract:
 
 - **`{Domain}Context`** — the generated, hermetic base every BC/Aggregate
   facade in the domain extends. Carries the Kernel-Naht `handle()`/`context()`
@@ -314,8 +314,8 @@ Builder — see `platform-implementation` for the full contract:
   `DomainKernel` (`DomainKernelInterface $kernel`), and self-registers every
   aggregate's event router via `$kernel->eventListenerRegistry()`.
 
-If you are extending or wiring **generated** code, read `platform-implementation`
-/ `platform-usage`, not this skill — this package's surface stops at the
+If you are extending or wiring **generated** code, read `generated-code-extend`
+/ `generated-code-wire-transport`, not this skill — this package's surface stops at the
 `DomainKernel`.
 
 HTTP-Delivery für den DomainKernel (FastRoute-Router, PSR-15-Pipeline, kanonischer
@@ -346,7 +346,7 @@ HTTP-Delivery für den DomainKernel (FastRoute-Router, PSR-15-Pipeline, kanonisc
   silently swallows a validation failure into the PDO/degraded-`null` path.
 - Never reach for `DomainApp`, `BoundedContext`, or `ServiceRegistry` in new
   code — they no longer exist in this package. A generated `{Domain}Context`
-  already provides the equivalent surface; consult `platform-implementation`.
+  already provides the equivalent surface; consult `generated-code-extend`.
 
 ## DEPENDENCIES
 ```
