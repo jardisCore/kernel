@@ -91,7 +91,7 @@ $response->getEvents();   // ['PlaceOrder' => [OrderPlaced {...}]]
 
 The generated `{Domain}Context` base class (the Naht, `handle()`/`context()`)
 and the `ContextResponse` → `DomainResponse` response pipeline are themselves
-part of what Jardis generates per domain — see the `platform-implementation`
+part of what Jardis generates per domain — see the `generated-code-extend`
 skill / `docs.jardis.io` for the generated-code contract. This package only
 provides the DomainKernel these generated classes consume.
 
@@ -362,7 +362,7 @@ Everything downstream of the DomainKernel — the generated `{Domain}Context` Na
 the `ContextResponse` → `DomainResponseTransformer` → `DomainResponse`
 pipeline — is generated per domain by Jardis itself (Kernel-Entkopplung: the
 generated domain is JardisCore-free; it imports only
-`jardissupport/contracts`). See the `platform-implementation` skill for that
+`jardissupport/contracts`). See the `generated-code-extend` skill for that
 generated-code contract.
 
 ---
