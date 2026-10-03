@@ -14,9 +14,6 @@ use JardisSupport\Contract\Mailer\MailerInterface;
  * Builds a Mailer from ENV values.
  *
  * Requires jardisadapter/mailer. Configuration via MAIL_* environment variables.
- *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\MailerHandler`,
- * Kernel-Entkopplung P2).
  */
 final class BuildMailerFromEnv
 {

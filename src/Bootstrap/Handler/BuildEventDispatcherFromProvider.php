@@ -15,9 +15,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * Requires jardisadapter/eventdispatcher. No provider (package not installed,
  * or ENV disabled it upstream) → no dispatcher either, event routing stays
  * inactive (documented fallback, PRD AC4).
- *
- * Split out of `jardiscore/foundation`'s `Handler\EventDispatcherHandler`
- * (Kernel-Entkopplung P2, D3 — Dispatcher + Registry as a pair).
  */
 final class BuildEventDispatcherFromProvider
 {

@@ -112,7 +112,7 @@ Jardis Builder, not provided by this package.
 | `Bootstrap\Data\CredentialEnvKeySuffixes` | Constant list of credential-shaped ENV key suffixes registered as DotEnv raw keys before `loadPrivate()` | **current** |
 | `Exception\InvalidEnvConfigurationException` | Thrown for unparsable bool values and invalid-but-configured settings (pool strategy, `MESSAGING_TRANSPORT`, unreachable configured host) — never for merely absent config | **current** |
 | `DomainApp` | Lazy kernel bootstrap, ClassVersion hooks, service sharing, `kernel()`/`handle()` | **deleted** — no replacement class; the generated Domain facade is `final` and holds only the `DomainKernel` |
-| `BoundedContext` | Use-case handler base (`handle()`/`context()`, Factory + ClassVersion) | **deleted** — ported 1:1 into the generated `{Domain}Context` (`generated-code-extend`) |
+| `BoundedContext` | Use-case handler base (`handle()`/`context()`, Factory + ClassVersion) | **deleted** — the generated `{Domain}Context` carries this role (`generated-code-extend`) |
 | `ServiceRegistry` | Static first-write-wins service sharing | **deleted** — no replacement; sharing is now explicit (same `DomainKernel` instance) |
 | `ContextResponse` / `DomainResponse` / `DomainResponseTransformer` / `ResponseStatus` | Response pipeline | **deleted from this package** — generated per domain under `{Domain}\Response\`; `ResponseStatus` moved to `jardissupport/contracts` |
 
@@ -307,8 +307,7 @@ Builder — see `generated-code-extend` for the full contract:
   `implements JardisSupport\Contract\Kernel\GeneratedContextInterface` (the D5
   marker) — **no `extends BoundedContext`**, no package base class at all.
 - **`{Domain}\Response\`** — the generated Response-Trio (`ContextResponse`,
-  `DomainResponse`, `DomainResponseTransformer`), 1:1-ported from this
-  package's former `src/Response/*`. `ResponseStatus` itself lives in
+  `DomainResponse`, `DomainResponseTransformer`). `ResponseStatus` itself lives in
   `jardissupport/contracts`.
 - **The Domain facade** (e.g. `Ecommerce`) is `final class`, holds only the
   `DomainKernel` (`DomainKernelInterface $kernel`), and self-registers every

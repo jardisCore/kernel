@@ -16,9 +16,6 @@ use JardisAdapter\EventDispatcher\ListenerProvider;
  * `DomainKernel::eventDispatcher()` (via `BuildEventDispatcherFromProvider`)
  * and `DomainKernel::eventListenerRegistry()`, so generated `{Agg}EventRouter`
  * scaffolds can register themselves without any Application wiring.
- *
- * Split out of `jardiscore/foundation`'s `Handler\EventDispatcherHandler`
- * (Kernel-Entkopplung P2, D3 — Dispatcher + Registry as a pair).
  */
 final class BuildEventListenerProviderFromEnv
 {
