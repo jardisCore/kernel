@@ -17,8 +17,7 @@ use Redis;
  * Each entry is handler:LEVEL, e.g. LOG_HANDLERS=file:ERROR,console:DEBUG
  * Level is optional — falls back to LOG_LEVEL.
  *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\LoggerHandler`,
- * Kernel-Entkopplung P2). The Redis connection is part of the Bootstrap-Packer's
+ * The Redis connection is part of the Bootstrap-Packer's
  * Redis fan-out (D4) — built once by `BuildRedisFromEnv` and shared with
  * `BuildCacheFromEnv`.
  */

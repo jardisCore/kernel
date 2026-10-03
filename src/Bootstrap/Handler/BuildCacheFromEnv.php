@@ -21,8 +21,7 @@ use Redis;
  * Requires jardisadapter/cache. Layer order defined by CACHE_LAYERS (comma-separated).
  * Example: CACHE_LAYERS=memory,redis,db
  *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\CacheHandler`,
- * Kernel-Entkopplung P2). The Redis connection is part of the Bootstrap-Packer's
+ * The Redis connection is part of the Bootstrap-Packer's
  * Redis fan-out (D4) — built once by `BuildRedisFromEnv` and shared with
  * `BuildLoggerFromEnv`.
  */

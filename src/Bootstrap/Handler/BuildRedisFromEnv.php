@@ -25,9 +25,6 @@ use RedisException;
  * {@see InvalidEnvConfigurationException} instead of silently degrading to
  * `null` — the prior behaviour hid a broken, explicitly configured Redis
  * behind a working-looking `null` cache/logger.
- *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\RedisHandler`,
- * Kernel-Entkopplung P2).
  */
 final class BuildRedisFromEnv
 {

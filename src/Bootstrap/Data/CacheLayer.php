@@ -6,9 +6,6 @@ namespace JardisCore\Kernel\Bootstrap\Data;
 
 /**
  * Available cache layer types for the CACHE_LAYERS ENV configuration.
- *
- * Ported 1:1 from `jardiscore/foundation` (`JardisCore\Foundation\Data\CacheLayer`,
- * Kernel-Entkopplung P2) into the Bootstrap-Packer sub-namespace.
  */
 enum CacheLayer: string
 {

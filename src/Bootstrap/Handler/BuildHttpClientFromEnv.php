@@ -18,9 +18,6 @@ use Psr\Http\Client\ClientInterface;
  * `=== 'true'` Roh-String comparison silently read the DotEnv-cast `bool(true)`
  * as false, switching SSL verification OFF for the common `HTTP_VERIFY_SSL=true`
  * case.
- *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\HttpClientHandler`,
- * Kernel-Entkopplung P2).
  */
 final class BuildHttpClientFromEnv
 {
