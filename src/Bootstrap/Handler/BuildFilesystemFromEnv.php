@@ -11,9 +11,6 @@ use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
  * Provides the FilesystemService factory.
  *
  * Requires jardisadapter/filesystem. No ENV needed — the service is a stateless factory.
- *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\FilesystemHandler`,
- * Kernel-Entkopplung P2).
  */
 final class BuildFilesystemFromEnv
 {

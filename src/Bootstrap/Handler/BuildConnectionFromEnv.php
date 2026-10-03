@@ -35,9 +35,6 @@ use PDOException;
  * immediately (see `buildPool`), before the plain-PDO fallback is attempted
  * — a config error must never be swallowed by the fallback (Senior-PHP
  * blocker).
- *
- * Ported 1:1 from `jardiscore/foundation` (`Handler\ConnectionHandler`,
- * Kernel-Entkopplung P2).
  */
 final class BuildConnectionFromEnv
 {
