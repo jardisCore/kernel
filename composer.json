@@ -27,7 +27,7 @@
     },
     "suggest": {
         "jardisadapter/cache": "For multi-layer caching (Memory, Redis, Database) via the Bootstrap-Packer",
-        "jardisadapter/dbconnection": "For ConnectionPool with read/write splitting, health checks and load balancing",
+        "jardisadapter/dbconnection": "For lazy ConnectionPool (connection opens on first access) with read/write splitting, health checks and load balancing; requires ^1.3",
         "jardisadapter/eventdispatcher": "For PSR-14 event dispatching via the Bootstrap-Packer",
         "jardisadapter/filesystem": "For local and S3 filesystem abstraction via the Bootstrap-Packer",
         "jardisadapter/http": "For PSR-18 HTTP client with handler pipeline via the Bootstrap-Packer",
@@ -45,7 +45,7 @@
         "squizlabs/php_codesniffer": "3.13.6",
         "jardis/dev-skills": "^1.0",
         "jardisadapter/cache": "^1.0",
-        "jardisadapter/dbconnection": "^1.1",
+        "jardisadapter/dbconnection": "^1.3",
         "jardisadapter/eventdispatcher": "^1.0",
         "jardisadapter/filesystem": "^1.0",
         "jardisadapter/http": "^1.0",

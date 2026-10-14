@@ -15,11 +15,16 @@ use PDOException;
 /**
  * Builds a database connection from ENV values.
  *
- * Supports mysql, pgsql, sqlite. Creates a ConnectionPool with read
- * replicas when DB_READER*_HOST is set and jardisadapter/dbconnection
- * is installed. Falls back to plain PDO otherwise. Optional pool tuning
+ * Supports mysql, pgsql, sqlite. With jardisadapter/dbconnection installed,
+ * mysql/pgsql return a ConnectionPool (a single lazy writer, plus read
+ * replicas when DB_READER*_HOST is set): NO connection is opened here — the
+ * writer/readers open on first access, so a request without database access
+ * opens no connection, and an unreachable host surfaces at first access, not
+ * at bootstrap. Without the adapter this falls back to a plain `new PDO`,
+ * which is EAGER (connects immediately, errors at bootstrap). sqlite is
+ * always a plain PDO (a local file, no socket). Optional pool tuning
  * via DB_POOL_* keys ({@see BuildConnectionPoolConfigFromEnv}); without
- * any of them the pool is built exactly as before.
+ * any of them the pool is built with the adapter defaults.
  *
  * Presence checks (`db_host`, `db_reader{n}_host`) go through
  * {@see IsEnvValueUnset}: DotEnv's cast chain reads an explicitly empty
@@ -28,12 +33,13 @@ use PDOException;
  *
  * G5 error rules (R1.3): no `db_driver`/`db_host` at all means the database
  * is not configured — `null` (unchanged). Once a driver is configured
- * (`db_driver=sqlite` or `db_host` set), any failure to connect —
- * PDO/adapter connection error, or an invalid `DB_POOL_*` value — throws
- * {@see InvalidEnvConfigurationException} instead of degrading to `null`
- * with a bare `error_log`. The invalid-pool-strategy case is rethrown
- * immediately (see `buildPool`), before the plain-PDO fallback is attempted
- * — a config error must never be swallowed by the fallback (Senior-PHP
+ * (`db_driver=sqlite` or `db_host` set), a sqlite open failure or an
+ * invalid `DB_POOL_*` value throws {@see InvalidEnvConfigurationException}
+ * instead of degrading to `null` with a bare `error_log`. A mysql/pgsql
+ * connection error on the lazy pool path is thrown at first access (by the
+ * adapter), not here; on the eager no-adapter PDO path it is thrown here.
+ * The invalid-pool-strategy case is rethrown immediately (see `buildPool`),
+ * before the plain-PDO fallback is attempted — a config error must never be swallowed by the fallback (Senior-PHP
  * blocker).
  */
 final class BuildConnectionFromEnv
@@ -57,10 +63,8 @@ final class BuildConnectionFromEnv
             return null;
         }
 
-        $readers = $this->findReaders($env);
-
-        if (!empty($readers) && class_exists(ConnectionPool::class)) {
-            return $this->buildPool($env, $driver, $readers);
+        if (class_exists(ConnectionPool::class)) {
+            return $this->buildPool($env, $driver, $this->findReaders($env));
         }
 
         return $this->buildPdo($env, $driver);
