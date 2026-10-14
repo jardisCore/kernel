@@ -6,7 +6,9 @@ namespace JardisCore\Kernel\Tests\Integration\Bootstrap;
 
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
+use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 /**
  * AK2.5 (PLAN.md §P2) — a configured but unreachable service throws instead
@@ -25,11 +27,33 @@ final class UnreachableServiceExceptionTest extends TestCase
         return __DIR__ . '/../../Fixtures/ProjectRoot/' . $name;
     }
 
-    public function testConfiguredUnreachableDbHostThrows(): void
+    public function testConfiguredUnreachableDbHostBuildsKernelAndThrowsOnFirstAccess(): void
     {
-        $this->expectException(InvalidEnvConfigurationException::class);
+        // The database connection is lazy: bootstrap opens no socket, the
+        // unreachable host only surfaces when the domain first uses it.
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('UnreachableDbHost'));
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('UnreachableDbHost'));
+        $connection = $kernel->dbConnection();
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+
+        $this->expectException(RuntimeException::class);
+
+        $connection->getWriter();
+    }
+
+    public function testUnreachableDbPortBuildsKernelWithoutException(): void
+    {
+        $kernel = (new BuildDomainKernelFromEnv())(
+            sys_get_temp_dir(),
+            "DB_HOST=127.0.0.1\nDB_PORT=1\nDB_USER=u\nDB_PASSWORD=p\nDB_DATABASE=d\n",
+        );
+
+        $connection = $kernel->dbConnection();
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+
+        $this->expectException(RuntimeException::class);
+
+        $connection->getWriter();
     }
 
     public function testConfiguredUnreachableRedisHostThrows(): void

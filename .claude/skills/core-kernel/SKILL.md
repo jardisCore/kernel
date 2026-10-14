@@ -256,7 +256,7 @@ $ecommerce = new Ecommerce($kernel);
   Each Handler closure degrades to `null` via `class_exists()` guards when its
   adapter is missing or its ENV is unconfigured — nothing throws for a missing
   optional service. **Exception:** a value that IS configured but invalid
-  (bad bool, bad pool strategy, unreachable configured host, invalid
+  (bad bool, bad pool strategy, unreachable configured Redis host, unopenable sqlite file, invalid
   `MESSAGING_TRANSPORT`) throws `InvalidEnvConfigurationException` — "not
   configured" and "misconfigured" are deliberately different outcomes.
 - **Container wiring is out of scope** (G6, "kein Problem, kein Pattern") —
@@ -337,6 +337,7 @@ HTTP-Delivery für den DomainKernel (FastRoute-Router, PSR-15-Pipeline, kanonisc
   disjoint listener sets.
 - Prefer plain `PDO`; `ConnectionPool` (`jardisadapter/dbconnection`) only
   when read replicas or health-checks are needed.
+- **The database connection opens on first access** (`jardisadapter/dbconnection` >= 1.3): a request without database access opens no connection, and an unreachable host surfaces at the first access, not at bootstrap. Via the packer mysql/pgsql are a `ConnectionPool` (single lazy writer without readers); sqlite stays a plain eager `PDO`, and so does the no-adapter fallback. A `db` cache layer or `database` messaging transport needs the writer PDO up front (`IsWriterPdoRequired`) and opens the connection at bootstrap.
 - **Bool-shaped ENV values go through `NormalizeEnvBool`, never a raw `===
   'true'` string compare** — the packer already applies it to every boolean
   Handler key; an unparsable value throws instead of degrading.

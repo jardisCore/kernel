@@ -10,6 +10,7 @@ use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 /**
  * Tests for BuildConnectionFromEnv — ported 1:1 from foundation's ConnectionHandler.
@@ -60,51 +61,64 @@ final class BuildConnectionFromEnvTest extends TestCase
         self::assertNull($connection);
     }
 
-    public function testUnreachableMysqlHostThrows(): void
+    public function testUnreachableMysqlHostReturnsLazyPoolAndThrowsOnFirstAccess(): void
     {
-        $this->expectException(InvalidEnvConfigurationException::class);
-
-        (new BuildConnectionFromEnv())($this->envFrom([
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
         ]));
+
+        // No socket opened at build time: a pool with a single, not yet connected writer.
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        // getReaders() without readers yields the writer, without a health check.
+        self::assertFalse($connection->getReaders()[0]->isConnected());
     }
 
-    public function testUnreachablePgsqlHostThrows(): void
+    public function testLazyPoolFirstAccessThrowsOnUnreachableHost(): void
     {
-        $this->expectException(InvalidEnvConfigurationException::class);
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
+            'db_host' => '127.0.0.1',
+            'db_port' => 1,
+        ]));
 
-        (new BuildConnectionFromEnv())($this->envFrom([
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+
+        $this->expectException(RuntimeException::class);
+
+        $connection->getWriter()->pdo();
+    }
+
+    public function testUnreachablePgsqlHostReturnsLazyPool(): void
+    {
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
             'db_driver' => 'pgsql',
             'db_host' => 'nonexistent_host_that_does_not_exist',
         ]));
+
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertSame('pgsql', $connection->getReaders()[0]->getDriverName());
     }
 
-    public function testReaderConfigurationWithUnreachableHostsThrows(): void
+    public function testReaderConfigurationReturnsLazyPoolWithoutConnecting(): void
     {
-        // db_reader1_host present -> findReaders() detects a reader -> buildPool()
-        // is attempted (ConnectionPool is installed via require-dev); both writer
-        // and reader are unreachable, so the pool build fails, falls back to
-        // buildPdo(), which also fails -> throws (G5 rule 3, no more silent null).
-        $this->expectException(InvalidEnvConfigurationException::class);
-
-        (new BuildConnectionFromEnv())($this->envFrom([
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
             'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
         ]));
+
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertCount(1, $connection->getReaders());
+        self::assertFalse($connection->getReaders()[0]->isConnected());
     }
 
-    public function testPoolEnvWithStickyWriterKeyStillThrowsOnUnreachableHosts(): void
+    public function testPoolEnvWithStickyWriterKeyStillBuildsLazily(): void
     {
-        // DB_POOL_* keys only tune the pool config — they change nothing about
-        // the connectivity-failure behaviour: unreachable writer/reader still
-        // falls back to buildPdo(), which also fails -> throws.
-        $this->expectException(InvalidEnvConfigurationException::class);
-
-        (new BuildConnectionFromEnv())($this->envFrom([
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
             'db_host' => 'nonexistent_host_that_does_not_exist',
             'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
             'db_pool_sticky_writer' => true,
         ]));
+
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
     }
 
     public function testInvalidPoolStrategyEnvIsRethrownBeforeAnyPdoFallback(): void

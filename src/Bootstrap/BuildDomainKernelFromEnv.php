@@ -18,6 +18,7 @@ use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\AssertNoUnresolvedSecret;
 use JardisCore\Kernel\Bootstrap\Handler\BuildSecretHandler;
 use JardisCore\Kernel\Bootstrap\Handler\ExtractPdoFromConnection;
+use JardisCore\Kernel\Bootstrap\Handler\IsWriterPdoRequired;
 use JardisCore\Kernel\Bootstrap\Handler\LoadEnvForKernel;
 use JardisCore\Kernel\Bootstrap\Handler\NormalizeEnvKeys;
 use JardisCore\Kernel\Bootstrap\Handler\ReadEnvValue;
@@ -59,7 +60,8 @@ use JardisCore\Kernel\DomainKernel;
  * Redis fan-out (D4): one Redis connection, built once, feeds both the cache
  * (`redis` layer) and the logger (`redis` handler) — named sub-closures
  * rather than duplicated wiring. The database connection fans out the same
- * way: its writer PDO ({@see ExtractPdoFromConnection}, extracted once) feeds
+ * way: its writer PDO ({@see ExtractPdoFromConnection}, extracted once, and
+ * only when one of them is configured — see {@see IsWriterPdoRequired}) feeds
  * both the optional `db` cache layer and the `database` messaging transport
  * — one stack, one database, never a second DSN to keep in sync.
  *
@@ -97,6 +99,7 @@ final class BuildDomainKernelFromEnv
     private readonly Closure $assertNoUnresolvedSecret;
     private readonly Closure $buildConnection;
     private readonly Closure $extractPdo;
+    private readonly Closure $isWriterPdoRequired;
     private readonly Closure $buildRedis;
     private readonly Closure $buildCache;
     private readonly Closure $buildLogger;
@@ -117,6 +120,7 @@ final class BuildDomainKernelFromEnv
         $this->assertNoUnresolvedSecret = (new AssertNoUnresolvedSecret())->__invoke(...);
         $this->buildConnection = (new BuildConnectionFromEnv())->__invoke(...);
         $this->extractPdo = (new ExtractPdoFromConnection())->__invoke(...);
+        $this->isWriterPdoRequired = (new IsWriterPdoRequired())->__invoke(...);
         $this->buildRedis = (new BuildRedisFromEnv())->__invoke(...);
         $this->buildCache = (new BuildCacheFromEnv())->__invoke(...);
         $this->buildLogger = (new BuildLoggerFromEnv())->__invoke(...);
@@ -148,7 +152,10 @@ final class BuildDomainKernelFromEnv
         // One extraction, two consumers: the optional `db` cache layer and
         // the database messaging transport both run on the writer PDO the
         // connection above already carries (D4 fan-out, same idea as Redis).
-        $writerPdo = ($this->extractPdo)($connection);
+        // Extracting it opens the (lazy) connection, so it only happens when
+        // one of those consumers is configured — otherwise the connection
+        // stays closed until the domain's first database access.
+        $writerPdo = ($this->isWriterPdoRequired)($envGet) ? ($this->extractPdo)($connection) : null;
         $redis = ($this->buildRedis)($envGet);
         $listenerProvider = ($this->buildEventListenerProvider)();
 

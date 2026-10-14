@@ -285,6 +285,10 @@ via `error_log`. An invalid `DB_POOL_LOAD_BALANCING_STRATEGY`, or that plain
 `PDO` fallback also failing, now throws `InvalidEnvConfigurationException`
 instead of degrading to `null` (R1 — see "Error Handling" below).
 
+### Lazy connection
+
+With `jardisadapter/dbconnection` >= 1.3 installed, `BuildDomainKernelFromEnv` returns a `ConnectionPool` for mysql/pgsql (a single writer when no `DB_READER{N}_HOST` is set) and opens **no** connection while building the kernel. The connection opens on first access (`getWriter()`/`getReader()`, `pdo()`); a request without database access opens no connection, and an unreachable host surfaces at the first access instead of at bootstrap. `dbConnection()` keeps its type `ConnectionPoolInterface|PDO|null`. Exceptions: `sqlite` is always a plain `PDO` (local file); without the adapter the fallback `new PDO` is eager; a configured `db` cache layer or `database` messaging transport needs the writer PDO up front and therefore opens the connection at bootstrap.
+
 ---
 
 ## Error Handling (ENV Bootstrap)
