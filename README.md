@@ -150,23 +150,38 @@ passed on as a cipher: the packer throws
 key (never the value) before any adapter is built. The key source is
 independent of the value source — a key file applies to string input too.
 
-`BuildDomainKernelFromEnv` wires nine services (cache, logger, event
+`BuildDomainKernelFromEnv` wires ten services (cache, logger, event
 dispatcher + listener registry, HTTP client, DB connection, mailer,
-filesystem, messaging) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
-`REDIS_*` / `MESSAGING_*` / `MESSAGING_DB_*` / `KAFKA_*` / `RABBITMQ_*` ENV keys — see
+filesystem, messaging, auth) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
+`REDIS_*` / `MESSAGING_*` / `MESSAGING_DB_*` / `KAFKA_*` / `RABBITMQ_*` / `AUTH_TOKEN_KEY` ENV keys — see
 [`docs/.env.example`](docs/.env.example) for the full key reference, grouped
 into the eight blocks (`app`, `database`, `redis`, `cache`, `logger`, `http`,
-`mail`, `messaging`) the tooling reads. The resulting packed `DomainKernel` exposes twelve accessors in
-total (the nine services above, plus `projectRoot()`, `env()`, and
+`mail`, `messaging`) the tooling reads. The resulting packed `DomainKernel` exposes thirteen accessors in
+total (the ten services above, plus `projectRoot()`, `env()`, and
 `container()`, which are not ENV-wired services — see the accessor table
 below). `projectRoot()` returns the project root passed to the packer, which
 is also the directory its `.env` is read from. Every adapter it can use
 (`jardisadapter/cache`, `jardisadapter/dbconnection`,
 `jardisadapter/eventdispatcher`, `jardisadapter/filesystem`,
 `jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`,
-`jardisadapter/messaging`) is a composer `suggest` — not installed, or not
+`jardisadapter/messaging`, plus `jardissupport/auth` for `auth()`) is a composer `suggest` — not installed, or not
 configured, means that accessor stays `null` on the packed DomainKernel. Nothing
 throws for a missing optional service.
+
+### Auth — `AUTH_TOKEN_KEY`
+
+| Key | Format | Effect |
+|-----|--------|--------|
+| `AUTH_TOKEN_KEY` | base64 of 32 raw bytes (e.g. `openssl rand -base64 32`) | switches `auth()` on: signing key for access tokens; rotating it invalidates every issued access token |
+
+**Without the key — or without `jardissupport/auth` installed — there is no
+`auth()` (`null`).** With the key, the refresh-token store (`DbTokenStore`, table
+DDL in the auth package's `resources/sql/`) runs on the same database
+connection as `dbConnection()`; a key that is not valid base64 of 32 bytes, or a
+key without a configured database, throws `InvalidEnvConfigurationException`
+naming `AUTH_TOKEN_KEY`. `auth()` is lazy: holding it opens no connection, the
+first `sessions()`/`tokenIssuer()`/... call does. Needs `jardissupport/auth`
+`^1.6` and `jardisadapter/dbconnection` `^1.3` (both optional, `suggest`).
 
 ---
 
@@ -186,6 +201,7 @@ $kernel = new DomainKernel(
     filesystem: $filesystemService,     // ?FilesystemServiceInterface
     env: ['db_host' => 'localhost'],    // array — private ENV, file values only
     messaging: $messagingService,       // ?MessagingServiceInterface
+    auth: $authServices,                // ?AuthServicesInterface
 );
 ```
 
@@ -203,6 +219,7 @@ $kernel = new DomainKernel(
 | `mailer()` | `?MailerInterface` |
 | `filesystem()` | `?FilesystemServiceInterface` |
 | `messaging()` | `?MessagingServiceInterface` — `MESSAGING_TRANSPORT=kafka \| rabbitmq \| redis \| database`; `database` is broker-less and reuses the writer PDO from `DB_*` |
+| `auth()` | `?AuthServicesInterface` — sessions (signed access + opaque refresh token), token issuer/redeemer, password hasher from `jardissupport/auth`; built from `AUTH_TOKEN_KEY` (see below), `null` without the key |
 
 `DomainKernel` builds nothing and reads no ENV itself — it is a pure,
 immutable consumer. All ENV/service-assembly is `Bootstrap\BuildDomainKernelFromEnv`'s
@@ -338,6 +355,7 @@ BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> DomainKernel
     ├── Handler\BuildMailerFromEnv
     ├── Handler\BuildFilesystemFromEnv
     ├── Handler\BuildMessagingFromEnv               kafka | rabbitmq | redis | database (R4)
+    ├── Handler\BuildAuthServicesFromEnv            AUTH_TOKEN_KEY + same DB connection -> LazyAuthServices
     ├── Handler\NormalizeEnvBool                   shared ENV-to-bool unit (R1)
     ├── Handler\IsEnvValueUnset                    shared "is this key configured" check (R1)
     ├── Data\CredentialEnvKeySuffixes               *_PASSWORD | *_USER | *_SECRET | *_TOKEN (R1)
@@ -358,7 +376,8 @@ DomainKernel                    Immutable. Constructor injection only.
     ├── dbConnection()          ConnectionPoolInterface | PDO | null
     ├── mailer()                ?MailerInterface
     ├── filesystem()            ?FilesystemServiceInterface
-    └── messaging()             ?MessagingServiceInterface
+    ├── messaging()             ?MessagingServiceInterface
+    └── auth()                  ?AuthServicesInterface
 ```
 
 Everything downstream of the DomainKernel — the generated `{Domain}Context` Naht
