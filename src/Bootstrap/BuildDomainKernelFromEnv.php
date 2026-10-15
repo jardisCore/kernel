@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Bootstrap;
 
 use Closure;
+use JardisCore\Kernel\Bootstrap\Handler\BuildAuthServicesFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildCacheFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildConnectionFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildEventDispatcherFromProvider;
@@ -65,6 +66,10 @@ use JardisCore\Kernel\DomainKernel;
  * both the optional `db` cache layer and the `database` messaging transport
  * — one stack, one database, never a second DSN to keep in sync.
  *
+ * Auth (`AUTH_TOKEN_KEY` + `jardissupport/auth`, see {@see BuildAuthServicesFromEnv}):
+ * the token store runs on the same `$connection`, built lazily on first use so a
+ * request without login never opens it; without the key `auth()` is `null`.
+ *
  * All 7 adapter packages this packer can use are optional (composer
  * `suggest`); every Handler closure degrades to `null` via `class_exists()`
  * guards when its adapter is not installed or its ENV is not configured —
@@ -109,6 +114,7 @@ final class BuildDomainKernelFromEnv
     private readonly Closure $buildMailer;
     private readonly Closure $buildFilesystem;
     private readonly Closure $buildMessaging;
+    private readonly Closure $buildAuth;
 
     public function __construct()
     {
@@ -130,6 +136,7 @@ final class BuildDomainKernelFromEnv
         $this->buildMailer = (new BuildMailerFromEnv())->__invoke(...);
         $this->buildFilesystem = (new BuildFilesystemFromEnv())->__invoke(...);
         $this->buildMessaging = (new BuildMessagingFromEnv())->__invoke(...);
+        $this->buildAuth = (new BuildAuthServicesFromEnv())->__invoke(...);
     }
 
     public function __invoke(string $projectRoot, ?string $envContent = null): DomainKernel
@@ -171,6 +178,7 @@ final class BuildDomainKernelFromEnv
             filesystem: ($this->buildFilesystem)(),
             env: $env,
             messaging: ($this->buildMessaging)($envGet, $writerPdo),
+            auth: ($this->buildAuth)($envGet, $connection),
         );
     }
 }

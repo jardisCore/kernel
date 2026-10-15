@@ -1,6 +1,6 @@
 ---
 name: core-kernel
-description: jardiscore/kernel v2 - the immutable DomainKernel (11 nullable/typed accessors + container(), incl. eventListenerRegistry, messaging) plus the optional Bootstrap-Packer BuildDomainKernelFromEnv (projectRoot-based: ONE `<projectRoot>/.env` plus its cascade, or an `.env`-formatted string; process environment always wins; secret key from APP_SECRET_KEY or `<projectRoot>/support/secret.key`). DomainApp/BoundedContext/ServiceRegistry/Response pipeline were removed (Kernel-Entkopplung 2026-07) - the generated {Domain}Context now carries handle()/context()/resource()/payload()/version()/result(). TRIGGER: DomainKernel, DomainKernelInterface, projectRoot, BuildDomainKernelFromEnv, Bootstrap-Packer, eventListenerRegistry, messaging(), .env im Root, envContent string mode, APP_SECRET_KEY, secret.key, InvalidEnvConfigurationException. Formerly (now generated, not in this package): DomainApp, BoundedContext, ServiceRegistry, SharedRegistry, ContextResponse, DomainResponse.
+description: jardiscore/kernel v2 - the immutable DomainKernel (12 nullable/typed accessors + container(), incl. eventListenerRegistry, messaging, auth) plus the optional Bootstrap-Packer BuildDomainKernelFromEnv (projectRoot-based: ONE `<projectRoot>/.env` plus its cascade, or an `.env`-formatted string; process environment always wins; secret key from APP_SECRET_KEY or `<projectRoot>/support/secret.key`; auth() from AUTH_TOKEN_KEY). DomainApp/BoundedContext/ServiceRegistry/Response pipeline were removed (Kernel-Entkopplung 2026-07) - the generated {Domain}Context now carries handle()/context()/resource()/payload()/version()/result(). TRIGGER: DomainKernel, DomainKernelInterface, projectRoot, BuildDomainKernelFromEnv, Bootstrap-Packer, eventListenerRegistry, messaging(), auth(), AUTH_TOKEN_KEY, .env im Root, envContent string mode, APP_SECRET_KEY, secret.key, InvalidEnvConfigurationException. Formerly (now generated, not in this package): DomainApp, BoundedContext, ServiceRegistry, SharedRegistry, ContextResponse, DomainResponse.
 user-invocable: false
 zone: post-active
 persona: C
@@ -28,8 +28,8 @@ hexagonal inner rings. The former domain-side classes are **deleted**:
   package does **not** define those classes anymore.
 - **Shared vocabulary moved to `jardissupport/contracts`:** `ResponseStatus`
   (enum), `GeneratedContextInterface` (the D5 marker every generated
-  `{Domain}Context` implements), `DomainKernelInterface` (12 methods incl.
-  `container()`, `eventListenerRegistry()` and `messaging()`).
+  `{Domain}Context` implements), `DomainKernelInterface` (13 methods incl.
+  `container()`, `eventListenerRegistry()`, `messaging()` and `auth()`).
 - **This package keeps exactly two things:** the immutable `DomainKernel`
   (implements `DomainKernelInterface`) and an optional ENV-driven packer
   (`Bootstrap\BuildDomainKernelFromEnv`) that builds one. Generated domains
@@ -87,7 +87,7 @@ Second breaking wave, tracked in `docs/env-konfiguration/` (repo
 Bootstrap\BuildDomainKernelFromEnv (optional ENV packer, one invokable class)
     → packs
 DomainKernel implements DomainKernelInterface (immutable,
-                                                constructor injection, 12 methods)
+                                                constructor injection, 13 methods)
     ↓ passed to
 new {Domain}($kernel)               ← generated Domain facade (final, JardisCore-free)
     ↓ new {BC}($kernel)              ← generated BC facade, extends {Domain}Context
@@ -104,9 +104,10 @@ Jardis Builder, not provided by this package.
 
 | Class | Responsibility | Status |
 |-------|---------------|--------|
-| `DomainKernel` | Immutable, constructor injection, implements `DomainKernelInterface` (12 methods). `container()` → `Factory` | **current** |
+| `DomainKernel` | Immutable, constructor injection, implements `DomainKernelInterface` (13 methods). `container()` → `Factory` | **current** |
 | `Bootstrap\BuildDomainKernelFromEnv` | Optional ENV packer. One invokable class (`__invoke(string $projectRoot): DomainKernel`), no static factory | **current** |
-| `Bootstrap\Handler\*` (11 classes) | Closures the packer composes: `BuildConnectionFromEnv`, `ExtractPdoFromConnection`, `BuildRedisFromEnv`, `BuildCacheFromEnv`, `BuildLoggerFromEnv`, `BuildEventListenerProviderFromEnv`, `BuildEventDispatcherFromProvider`, `BuildHttpClientFromEnv`, `BuildMailerFromEnv`, `BuildFilesystemFromEnv`, `BuildMessagingFromEnv`; plus normalization helpers `NormalizeEnvBool`, `IsEnvValueUnset` | **current** |
+| `Bootstrap\LazyAuthServices` | Proxy that builds the auth services on first use (the token store needs the DB connection, resolving it may open it) | **current** |
+| `Bootstrap\Handler\*` (12 classes) | Closures the packer composes: `BuildConnectionFromEnv`, `ExtractPdoFromConnection`, `BuildRedisFromEnv`, `BuildCacheFromEnv`, `BuildLoggerFromEnv`, `BuildEventListenerProviderFromEnv`, `BuildEventDispatcherFromProvider`, `BuildHttpClientFromEnv`, `BuildMailerFromEnv`, `BuildFilesystemFromEnv`, `BuildMessagingFromEnv`, `BuildAuthServicesFromEnv`; plus normalization helpers `NormalizeEnvBool`, `IsEnvValueUnset` | **current** |
 | `Bootstrap\Data\CacheLayer` | ENV enum for `CACHE_LAYERS` — 4 cases: `Memory`, `Apcu`, `Redis`, `Database` | **current** |
 | `Bootstrap\Data\LogHandler` | ENV enum for `LOG_HANDLERS` — 11 cases: `File`, `Console`, `ErrorLog`, `Syslog`, `BrowserConsole`, `Redis`, `Slack`, `Teams`, `Loki`, `Webhook`, `Null` | **current** |
 | `Bootstrap\Data\CredentialEnvKeySuffixes` | Constant list of credential-shaped ENV key suffixes registered as DotEnv raw keys before `loadPrivate()` | **current** |
@@ -182,7 +183,8 @@ $kernel = new DomainKernel(
     mailer: $mailer,                     // ?MailerInterface
     filesystem: $filesystemService,      // ?FilesystemServiceInterface
     env: ['db_host' => 'localhost'],     // array — private ENV, file-only (no $_ENV fallback)
-    messaging: $messagingService,        // ?MessagingServiceInterface — last constructor param
+    messaging: $messagingService,        // ?MessagingServiceInterface
+    auth: $authServices,                 // ?AuthServicesInterface — last constructor param
 );
 
 $ecommerce = new Ecommerce($kernel);     // {Domain} facade, generated by Jardis — no extends
@@ -202,9 +204,10 @@ $ecommerce = new Ecommerce($kernel);     // {Domain} facade, generated by Jardis
 | `mailer()` | `?MailerInterface` | |
 | `filesystem()` | `?FilesystemServiceInterface` | |
 | `messaging()` | `?MessagingServiceInterface` | **added with env-konfiguration R4** — publish/consume across kafka/rabbitmq/redis, see dedicated section below |
+| `auth()` | `?AuthServicesInterface` | **added with kernel 2.6.0 (contracts >= 2.11)** — `sessions()` / `tokenIssuer()` / `tokenRedeemer()` / `hasher()` from `jardissupport/auth`; packer builds it from `AUTH_TOKEN_KEY`, see "Auth from ENV" below |
 
 `DomainKernel` builds nothing and reads no ENV itself — a pure, immutable
-consumer. All 11 services come via constructor; there is no lazy bootstrap,
+consumer. All 12 services come via constructor; there is no lazy bootstrap,
 no `kernel()` hook (that was `DomainApp`'s job — gone).
 
 ### Multi-domain sharing is still explicit
@@ -252,7 +255,7 @@ $ecommerce = new Ecommerce($kernel);
   (`ExtractPdoFromConnection`), it feeds both the optional `db` cache layer
   and the `database` messaging transport — one stack, one database.
 - **Every adapter is optional** (composer `suggest`, not required):
-  `jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer,messaging}`.
+  `jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer,messaging}` (and `jardissupport/auth` for `auth()`).
   Each Handler closure degrades to `null` via `class_exists()` guards when its
   adapter is missing or its ENV is unconfigured — nothing throws for a missing
   optional service. **Exception:** a value that IS configured but invalid
@@ -363,3 +366,25 @@ psr/http-client             ^1.0
 # jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer,messaging}
 # ext-redis, ext-rdkafka, ext-amqp
 ```
+
+## Auth from ENV (v2.6.0)
+
+`auth()` returns `?AuthServicesInterface` (contracts >= 2.11, implemented by
+`jardissupport/auth` >= 1.6 `AuthServices`): sessions (signed access token +
+opaque refresh token), token issuer/redeemer, password hasher.
+
+- **Key:** `AUTH_TOKEN_KEY` = base64 of 32 raw bytes (same decode the generated
+  `middleware.php` applies). **Without the key, or without `jardissupport/auth`
+  installed, `auth()` is `null`** — nothing throws. A key that is set but not
+  base64 / not 32 bytes, or set without a configured database, throws
+  `InvalidEnvConfigurationException` naming `AUTH_TOKEN_KEY`.
+- **Store:** `DbTokenStore` on the SAME connection as `dbConnection()` — a pool
+  contributes its writer, a bare PDO (sqlite) is wrapped via
+  `jardisadapter/dbconnection` `ConnectionFactory::fromPdo(manageLifecycle: false)`
+  (the bridge the messaging transport uses too). The token table DDL ships with
+  the auth package (`resources/sql/<driver>.sql`), applied once per project.
+- **Lazy:** the packer returns `LazyAuthServices`; holding or null-checking
+  `$kernel->auth()` opens no connection. The first service call resolves the
+  writer and builds the store.
+- Rotating the key invalidates every issued access token. Put the key in the
+  process environment or the project `.env` (no `secret(...)` needed, but fine).

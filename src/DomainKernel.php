@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisCore\Kernel;
 
+use JardisSupport\Contract\Auth\AuthServicesInterface;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
@@ -45,6 +46,7 @@ class DomainKernel implements DomainKernelInterface
         private readonly ?FilesystemServiceInterface $filesystem = null,
         array $env = [],
         private readonly ?MessagingServiceInterface $messaging = null,
+        private readonly ?AuthServicesInterface $auth = null,
     ) {
         if ($projectRoot === '') {
             throw new \InvalidArgumentException('projectRoot must not be empty');
@@ -121,5 +123,10 @@ class DomainKernel implements DomainKernelInterface
     public function messaging(): ?MessagingServiceInterface
     {
         return $this->messaging;
+    }
+
+    public function auth(): ?AuthServicesInterface
+    {
+        return $this->auth;
     }
 }
