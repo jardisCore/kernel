@@ -56,10 +56,43 @@ final class UnreachableServiceExceptionTest extends TestCase
         $connection->getWriter();
     }
 
-    public function testConfiguredUnreachableRedisHostThrows(): void
+    public function testConfiguredUnreachableRedisHostBuildsKernelWhenNoServiceUsesIt(): void
     {
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — a configured but
+        // unreachable Redis that no cache layer or log handler uses must not
+        // fail the boot (it used to, the client connected at bootstrap).
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('UnreachableRedisHost'));
+
+        self::assertSame($this->fixturePath('UnreachableRedisHost'), $kernel->projectRoot());
+    }
+
+    public function testConfiguredUnreachableRedisHostThrowsOnFirstCacheAccess(): void
+    {
+        // The configured-but-unreachable rule (G5 rule 3) stays loud — it now
+        // fires where Redis is first needed, not while the kernel is built.
+        $kernel = (new BuildDomainKernelFromEnv())(
+            sys_get_temp_dir(),
+            "REDIS_HOST=nonexistent_host_that_does_not_exist\nREDIS_PORT=6379\nCACHE_LAYERS=redis\n",
+        );
+
+        $cache = $kernel->cache();
+        self::assertNotNull($cache);
+
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('UnreachableRedisHost'));
+        $cache->get('anything');
+    }
+
+    public function testUnreachableRedisHostWithRedisLogHandlerStillThrowsWhileBuildingTheLogger(): void
+    {
+        // jardisadapter/logger takes an opened Redis client, so a listed
+        // `redis` handler connects at build time — and must not be swallowed
+        // by the logger handler's defensive catch (OFFEN-FUER-L15b).
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildDomainKernelFromEnv())(
+            sys_get_temp_dir(),
+            "REDIS_HOST=nonexistent_host_that_does_not_exist\nREDIS_PORT=6379\nLOG_HANDLERS=redis\n",
+        );
     }
 }

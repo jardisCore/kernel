@@ -12,6 +12,7 @@ use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisSupport\Contract\Messaging\MessageHandlerInterface;
 use JardisSupport\Contract\Messaging\MessagingServiceInterface;
+use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use ReflectionProperty;
@@ -52,8 +53,11 @@ final class BuildMessagingDatabaseFromEnvTest extends TestCase
     {
         $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('MessagingDatabase'));
 
-        $pdo = $kernel->dbConnection();
-        self::assertInstanceOf(PDO::class, $pdo);
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — sqlite is a lazy pool,
+        // its writer PDO opens on first access.
+        $pool = $kernel->dbConnection();
+        self::assertInstanceOf(ConnectionPoolInterface::class, $pool);
+        $pdo = $pool->getWriter()->pdo();
 
         $messaging = $kernel->messaging();
         self::assertNotNull($messaging);
@@ -73,8 +77,11 @@ final class BuildMessagingDatabaseFromEnvTest extends TestCase
     {
         $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('MessagingDatabase'));
 
-        $pdo = $kernel->dbConnection();
-        self::assertInstanceOf(PDO::class, $pdo);
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — sqlite is a lazy pool,
+        // its writer PDO opens on first access.
+        $pool = $kernel->dbConnection();
+        self::assertInstanceOf(ConnectionPoolInterface::class, $pool);
+        $pdo = $pool->getWriter()->pdo();
         $this->createEventTable($pdo);
 
         $messaging = $kernel->messaging();

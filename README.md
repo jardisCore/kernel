@@ -302,9 +302,13 @@ via `error_log`. An invalid `DB_POOL_LOAD_BALANCING_STRATEGY`, or that plain
 `PDO` fallback also failing, now throws `InvalidEnvConfigurationException`
 instead of degrading to `null` (R1 — see "Error Handling" below).
 
-### Lazy connection
+### Lazy bootstrap (all services)
 
-With `jardisadapter/dbconnection` >= 1.3 installed, `BuildDomainKernelFromEnv` returns a `ConnectionPool` for mysql/pgsql (a single writer when no `DB_READER{N}_HOST` is set) and opens **no** connection while building the kernel. The connection opens on first access (`getWriter()`/`getReader()`, `pdo()`); a request without database access opens no connection, and an unreachable host surfaces at the first access instead of at bootstrap. `dbConnection()` keeps its type `ConnectionPoolInterface|PDO|null`. Exceptions: `sqlite` is always a plain `PDO` (local file); without the adapter the fallback `new PDO` is eager; a configured `db` cache layer or `database` messaging transport needs the writer PDO up front and therefore opens the connection at bootstrap.
+Building the kernel wires, it opens nothing external — no database connection, no SQLite file, no Redis socket. The first access opens it, and an error appears there, not at bootstrap.
+
+With `jardisadapter/dbconnection` >= 1.4 installed, `BuildDomainKernelFromEnv` returns a `ConnectionPool` for mysql/pgsql **and sqlite** (a single writer when no `DB_READER{N}_HOST` is set). The connection opens on first access (`getWriter()`/`getReader()`, `pdo()`); a request without database access opens no connection, and an unreachable host or an unopenable SQLite path surfaces at the first access instead of at bootstrap. `dbConnection()` keeps its type `ConnectionPoolInterface|PDO|null`; the `PDO` branch is now only the no-adapter fallback, which stays eager (`new PDO`). Consumers must not assume `instanceof PDO` for sqlite.
+
+The writer PDO and the Redis client are shared by several services (cache, logger, messaging). They travel as memoizing provider closures (`ProvideWriterPdo`, `ProvideRedisFromEnv`): the `db` and `redis` cache layers are `LazyCacheLayer` proxies that call the provider on their first cache call, the `database` messaging transport wraps the PDO only when its publisher/consumer is first built. A configured but unreachable Redis that no cache layer uses no longer fails the boot; if a layer uses it, `InvalidEnvConfigurationException` is thrown at the first cache call. One exception remains: `jardisadapter/logger` takes an opened Redis client, so a `redis` entry in `LOG_HANDLERS` still connects (and throws when unreachable) while the logger is built.
 
 ---
 
@@ -317,7 +321,7 @@ key they read:
 |-------|--------|
 | Key not set, or set to an empty value (`KEY=`) | `null` — the service degrades gracefully |
 | Key set to an unparsable/invalid value (e.g. `HTTP_VERIFY_SSL=maybe`, an unknown `DB_POOL_LOAD_BALANCING_STRATEGY`) | throws `JardisCore\Kernel\Exception\InvalidEnvConfigurationException` |
-| Key set, service configured, but unreachable (DB/Redis connection fails) | throws `InvalidEnvConfigurationException` |
+| Key set, service configured, but unreachable (Redis host; DB with the no-adapter fallback) | throws `InvalidEnvConfigurationException` — at the service's first use (Redis cache layer), or while building when the service cannot be lazy (`redis` log handler, no-adapter PDO). With `jardisadapter/dbconnection` the database error is the adapter's `RuntimeException` at first access |
 | Key holds an unresolvable `secret(...)` value (no `APP_SECRET_KEY`, no `support/secret.key`) | throws `InvalidEnvConfigurationException` naming the KEY, never the value — before any adapter is built |
 | An ENV key the packer does not recognize | ignored |
 
@@ -346,7 +350,10 @@ contains the value.
 BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> DomainKernel.
     ├── Handler\BuildConnectionFromEnv            mysql | pgsql | sqlite (+ pool)
     ├── Handler\BuildRedisFromEnv                 shared fan-out (-> cache + logger)
-    ├── Handler\ExtractPdoFromConnection           feeds the cache "db" layer
+    ├── Handler\ProvideWriterPdo                  lazy writer PDO (-> cache "db" layer + messaging "database")
+    ├── Handler\ProvideRedisFromEnv                lazy Redis (-> cache "redis" layer + logger)
+    ├── Handler\MemoizeProvider                    build-once provider closure
+    ├── LazyCacheLayer                             builds a cache layer on first use
     ├── Handler\BuildCacheFromEnv                  memory | apcu | redis | db
     ├── Handler\BuildLoggerFromEnv                 file | console | slack | ... (+redis)
     ├── Handler\BuildEventListenerProviderFromEnv  shared provider (D3)

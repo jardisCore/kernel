@@ -83,6 +83,47 @@ final class BuildCacheFromEnvTest extends TestCase
         self::assertSame('namespaced', $cache->get('key'));
     }
 
+    public function testDatabaseLayerProviderIsNotCalledWhileBuildingOnlyOnFirstAccess(): void
+    {
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy.
+        $calls = 0;
+        $pdo = new PDO('sqlite::memory:');
+        $pdo->exec(
+            'CREATE TABLE cache (cache_key TEXT PRIMARY KEY, cache_value TEXT NOT NULL, expires_at INTEGER)',
+        );
+
+        $cache = (new BuildCacheFromEnv())($this->envFrom(['cache_layers' => 'db']), function () use (&$calls, $pdo): PDO {
+            $calls++;
+
+            return $pdo;
+        });
+
+        self::assertInstanceOf(CacheInterface::class, $cache);
+        self::assertSame(0, $calls);
+        $cache->set('db_key', 'db_value');
+        self::assertSame(1, $calls);
+        self::assertSame('db_value', $cache->get('db_key'));
+        self::assertSame(1, $calls);
+    }
+
+    public function testRedisLayerProviderIsNotCalledWhileBuilding(): void
+    {
+        $calls = 0;
+
+        $cache = (new BuildCacheFromEnv())(
+            $this->envFrom(['cache_layers' => 'redis']),
+            null,
+            function () use (&$calls): \Redis {
+                $calls++;
+
+                throw new \RuntimeException('must not be reached while building');
+            },
+        );
+
+        self::assertInstanceOf(CacheInterface::class, $cache);
+        self::assertSame(0, $calls);
+    }
+
     /**
      * @param array<string, mixed> $data
      * @return Closure(string): mixed

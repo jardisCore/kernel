@@ -3,6 +3,39 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — all services lazy (Bescheid Rolf 2026-10-15)
+
+Building the kernel wires; it no longer opens a database connection, a SQLite
+file or a Redis socket. The first access opens, an error appears there.
+
+### Changed
+
+- **sqlite is a lazy `ConnectionPool`** (`ConnectionFactory::sqlite`, requires
+  `jardisadapter/dbconnection` `^1.4`) instead of an eager `new PDO`;
+  `dbConnection()` keeps its union type, but `instanceof PDO` is now only true in
+  the no-adapter fallback. An unopenable SQLite path no longer throws
+  `InvalidEnvConfigurationException` at bootstrap — the adapter's
+  `RuntimeException` surfaces at the first access.
+- The writer PDO and the Redis client reach cache, messaging and logger as
+  memoizing provider closures (`ProvideWriterPdo`, `ProvideRedisFromEnv`,
+  `MemoizeProvider`). `BuildCacheFromEnv`, `BuildMessagingFromEnv` accept
+  `PDO|Closure`, `BuildCacheFromEnv`/`BuildLoggerFromEnv` accept `Redis|Closure`
+  (a ready object still works). An unreachable configured Redis that nothing
+  uses no longer fails the boot; a `redis` cache layer throws
+  `InvalidEnvConfigurationException` at its first call.
+- The `db` / `redis` cache layers are built behind `LazyCacheLayer`; the
+  `database` messaging transport wraps the PDO when its publisher/consumer is
+  first built.
+
+### Removed
+
+- `Handler\IsWriterPdoRequired` — obsolete: providing the PDO opens nothing.
+
+### Known limit
+
+- A `redis` entry in `LOG_HANDLERS` still connects while the logger is built
+  (`jardisadapter/logger` `addRedis()` takes an opened client).
+
 ## [2.6.0] — 2026-10-15 — `auth()` accessor, built from `AUTH_TOKEN_KEY`
 
 `jardissupport/contracts` 2.11 adds `DomainKernelInterface::auth()`; kernel 2.5.x

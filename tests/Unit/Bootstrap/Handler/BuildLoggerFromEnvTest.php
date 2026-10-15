@@ -6,6 +6,7 @@ namespace JardisCore\Kernel\Tests\Unit\Bootstrap\Handler;
 
 use Closure;
 use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
@@ -73,6 +74,34 @@ final class BuildLoggerFromEnvTest extends TestCase
         $logger = (new BuildLoggerFromEnv())($this->envFrom(['log_handlers' => 'redis']), null);
 
         self::assertInstanceOf(LoggerInterface::class, $logger);
+    }
+
+    public function testRedisProviderIsNotCalledWhenNoRedisHandlerIsListed(): void
+    {
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy.
+        $calls = 0;
+
+        $logger = (new BuildLoggerFromEnv())(
+            $this->envFrom(['log_handlers' => 'null']),
+            function () use (&$calls): \Redis {
+                $calls++;
+
+                throw new \RuntimeException('must not be reached');
+            },
+        );
+
+        self::assertInstanceOf(LoggerInterface::class, $logger);
+        self::assertSame(0, $calls);
+    }
+
+    public function testRedisProviderIsCalledWhenARedisHandlerIsListedAndItsErrorIsNotSwallowed(): void
+    {
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        (new BuildLoggerFromEnv())(
+            $this->envFrom(['log_handlers' => 'redis']),
+            static fn (): \Redis => throw new InvalidEnvConfigurationException('Redis connection failed'),
+        );
     }
 
     public function testSlackHandlerIsSkippedWhenUrlMissing(): void

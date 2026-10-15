@@ -9,6 +9,7 @@ use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisCore\Kernel\Tests\Support\EnvIsolation;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
+use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
@@ -82,10 +83,11 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         // 8: httpClient() — built unconditionally once jardisadapter/http is installed.
         self::assertInstanceOf(ClientInterface::class, $kernel->httpClient());
 
-        // 9: dbConnection() — sqlite in-memory fallback (no Docker dependency).
+        // 9: dbConnection() — sqlite in-memory (no Docker dependency). Bescheid
+        // Rolf 2026-10-15: alle Dienste lazy — a pool whose writer PDO opens on first access.
         $connection = $kernel->dbConnection();
-        self::assertInstanceOf(PDO::class, $connection);
-        self::assertSame('sqlite', $connection->getAttribute(PDO::ATTR_DRIVER_NAME));
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertSame('sqlite', $connection->getWriter()->pdo()->getAttribute(PDO::ATTR_DRIVER_NAME));
 
         // 10: mailer() — MAIL_HOST not configured in the fixture -> documented null.
         self::assertNull($kernel->mailer());

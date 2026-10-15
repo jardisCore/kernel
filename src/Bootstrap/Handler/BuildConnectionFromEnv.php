@@ -20,9 +20,11 @@ use PDOException;
  * replicas when DB_READER*_HOST is set): NO connection is opened here — the
  * writer/readers open on first access, so a request without database access
  * opens no connection, and an unreachable host surfaces at first access, not
- * at bootstrap. Without the adapter this falls back to a plain `new PDO`,
- * which is EAGER (connects immediately, errors at bootstrap). sqlite is
- * always a plain PDO (a local file, no socket). Optional pool tuning
+ * at bootstrap. sqlite is the same: a pool whose single writer opens (and
+ * applies its PRAGMAs) on first access (`jardisadapter/dbconnection` >= 1.4)
+ * — no file is created at bootstrap, an unopenable path surfaces at first
+ * access. Without the adapter both fall back to a plain `new PDO`, which is
+ * EAGER (connects immediately, errors at bootstrap). Optional pool tuning
  * via DB_POOL_* keys ({@see BuildConnectionPoolConfigFromEnv}); without
  * any of them the pool is built with the adapter defaults.
  *
@@ -71,9 +73,15 @@ final class BuildConnectionFromEnv
     }
 
     /** @param Closure(string): mixed $env */
-    private function buildSqlite(Closure $env): PDO
+    private function buildSqlite(Closure $env): ConnectionPoolInterface|PDO
     {
         $path = (string) ($env('db_path') ?? ':memory:');
+
+        if (class_exists(ConnectionPool::class)) {
+            // Bescheid Rolf 2026-10-15: all services lazy. The sqlite writer
+            // opens on first pdo() (dbconnection >= 1.4), like mysql/pgsql.
+            return new ConnectionPool((new ConnectionFactory())->sqlite($path));
+        }
 
         try {
             return new PDO('sqlite:' . $path, options: self::PDO_OPTIONS);
