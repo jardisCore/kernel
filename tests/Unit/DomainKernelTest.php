@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Tests\Unit;
 
 use JardisCore\Kernel\DomainKernel;
+use JardisSupport\Contract\Auth\AuthServicesInterface;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
@@ -213,5 +214,17 @@ class DomainKernelTest extends TestCase
         $this->expectExceptionMessage('projectRoot must not be empty');
 
         new DomainKernel('');
+    }
+
+    public function testAuthDefaultsToNull(): void
+    {
+        $this->assertNull((new DomainKernel('/app/src'))->auth());
+    }
+
+    public function testAuthReturnsTheInjectedServices(): void
+    {
+        $auth = $this->createMock(AuthServicesInterface::class);
+
+        $this->assertSame($auth, (new DomainKernel('/app/src', auth: $auth))->auth());
     }
 }

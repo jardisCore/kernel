@@ -3,6 +3,29 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.0] — 2026-10-15 — `auth()` accessor, built from `AUTH_TOKEN_KEY`
+
+`jardissupport/contracts` 2.11 adds `DomainKernelInterface::auth()`; kernel 2.5.x
+does not implement it, so this release closes that gap.
+
+### Added
+
+- `DomainKernel::auth(): ?AuthServicesInterface` (13th interface method) and the
+  trailing constructor parameter `?AuthServicesInterface $auth = null` — additive,
+  existing parameters keep their order.
+- `Bootstrap\Handler\BuildAuthServicesFromEnv`: `AUTH_TOKEN_KEY` (base64, 32 bytes)
+  -> `AuthServices::fromStore(DbTokenStore, key)` on the SAME connection as
+  `dbConnection()` (pool writer, or bare PDO via `ConnectionFactory::fromPdo`).
+  `null` without the key or without `jardissupport/auth`; an invalid key, or a
+  key without a database, throws `InvalidEnvConfigurationException`.
+- `Bootstrap\LazyAuthServices`: the store is built on first service use, so holding
+  `auth()` opens no database connection.
+
+### Changed
+
+- Requires `jardissupport/contracts` `^2.11`. `jardissupport/auth` `^1.6` is a
+  `require-dev` dependency and a `suggest`, not a hard requirement.
+
 ## [2.4.1] — 2026-08-30 — `_FILE` values are read only for absolute paths
 
 ### Changed
