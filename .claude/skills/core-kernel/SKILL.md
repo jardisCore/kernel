@@ -260,7 +260,9 @@ $ecommerce = new Ecommerce($kernel);
   `jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer,messaging}` (and `jardissupport/auth` for `auth()`).
   Each Handler closure degrades to `null` via `class_exists()` guards when its
   adapter is missing or its ENV is unconfigured — nothing throws for a missing
-  optional service. **Exception:** a value that IS configured but invalid
+  optional service. **Exceptions:** `DB_*` configured (`DB_DRIVER=sqlite` or
+  `DB_HOST`) while `jardisadapter/dbconnection` is missing throws
+  `InvalidEnvConfigurationException` while building; and a value that IS configured but invalid
   (bad bool, bad pool strategy, unreachable configured Redis host at its first use, invalid
   `MESSAGING_TRANSPORT`) throws `InvalidEnvConfigurationException` — "not
   configured" and "misconfigured" are deliberately different outcomes.
@@ -385,7 +387,8 @@ opaque refresh token), token issuer/redeemer, password hasher.
   base64 / not 32 bytes, or set without a configured database, throws
   `InvalidEnvConfigurationException` naming `AUTH_TOKEN_KEY`.
 - **Store:** `DbTokenStore` on the SAME connection as `dbConnection()` — a pool
-  contributes its writer, a bare PDO (sqlite) is wrapped via
+  contributes its writer (via the packer SQLite is a pool too); a bare PDO —
+  only in a hand-built `DomainKernel` — is wrapped via
   `jardisadapter/dbconnection` `ConnectionFactory::fromPdo(manageLifecycle: false)`
   (the bridge the messaging transport uses too). The token table DDL ships with
   the auth package (`resources/sql/<driver>.sql`), applied once per project.

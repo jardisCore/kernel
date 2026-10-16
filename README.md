@@ -166,7 +166,9 @@ is also the directory its `.env` is read from. Every adapter it can use
 `jardisadapter/http`, `jardisadapter/logger`, `jardisadapter/mailer`,
 `jardisadapter/messaging`, plus `jardissupport/auth` for `auth()`) is a composer `suggest` — not installed, or not
 configured, means that accessor stays `null` on the packed DomainKernel. Nothing
-throws for a missing optional service.
+throws for a missing optional service — with one exception: `DB_*` configured
+(`DB_DRIVER=sqlite` or `DB_HOST`) while `jardisadapter/dbconnection` is missing
+throws `InvalidEnvConfigurationException` while building.
 
 ### Auth — `AUTH_TOKEN_KEY`
 
@@ -181,7 +183,7 @@ connection as `dbConnection()`; a key that is not valid base64 of 32 bytes, or a
 key without a configured database, throws `InvalidEnvConfigurationException`
 naming `AUTH_TOKEN_KEY`. `auth()` is lazy: holding it opens no connection, the
 first `sessions()`/`tokenIssuer()`/... call does. Needs `jardissupport/auth`
-`^1.6` and `jardisadapter/dbconnection` `^1.3` (both optional, `suggest`).
+`^1.6` and `jardisadapter/dbconnection` `^1.4` (both optional, `suggest`).
 
 ---
 
