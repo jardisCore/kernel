@@ -296,17 +296,17 @@ keys tune its `ConnectionPoolConfig` (see
 to the writer). Setting none of them keeps the adapter defaults — the pool is
 built exactly as before; setting any builds an explicit config where only the
 set keys deviate. `DB_POOL_STICKY_WRITER` requires
-`jardisadapter/dbconnection` >= 1.1.0 — with an older version installed the
-pool build fails and falls back to a plain `PDO` attempt on `DB_HOST`, logged
-via `error_log`. An invalid `DB_POOL_LOAD_BALANCING_STRATEGY`, or that plain
-`PDO` fallback also failing, now throws `InvalidEnvConfigurationException`
-instead of degrading to `null` (R1 — see "Error Handling" below).
+`jardisadapter/dbconnection` >= 1.1.0 (the kernel's composer `conflict` keeps
+it on ^1.4). An invalid `DB_POOL_LOAD_BALANCING_STRATEGY` throws
+`InvalidEnvConfigurationException` instead of degrading to `null` (R1 — see
+"Error Handling" below). There is no plain-`PDO` fallback: if the pool cannot
+be built, the error reaches the caller.
 
 ### Lazy bootstrap (all services)
 
 Building the kernel wires, it opens nothing external — no database connection, no SQLite file, no Redis socket. The first access opens it, and an error appears there, not at bootstrap.
 
-With `jardisadapter/dbconnection` >= 1.4 installed, `BuildDomainKernelFromEnv` returns a `ConnectionPool` for mysql/pgsql **and sqlite** (a single writer when no `DB_READER{N}_HOST` is set). The connection opens on first access (`getWriter()`/`getReader()`, `pdo()`); a request without database access opens no connection, and an unreachable host or an unopenable SQLite path surfaces at the first access instead of at bootstrap. `dbConnection()` keeps its type `ConnectionPoolInterface|PDO|null`; the `PDO` branch is now only the no-adapter fallback, which stays eager (`new PDO`). Consumers must not assume `instanceof PDO` for sqlite.
+With `jardisadapter/dbconnection` >= 1.4 installed, `BuildDomainKernelFromEnv` returns a `ConnectionPool` for mysql/pgsql **and sqlite** (a single writer when no `DB_READER{N}_HOST` is set). The connection opens on first access (`getWriter()`/`getReader()`, `pdo()`); a request without database access opens no connection, and an unreachable host or an unopenable SQLite path surfaces at the first access instead of at bootstrap. `dbConnection()` keeps its type `ConnectionPoolInterface|PDO|null` (a hand-built `DomainKernel` may still be given a `PDO`), but the packer always returns a `ConnectionPool` or `null` — there is no eager rest and no plain-PDO fallback (Entscheid O23 2026-10-16). If a database is configured (`DB_DRIVER=sqlite` or `DB_HOST`) and `jardisadapter/dbconnection` (^1.4) is not installed, the packer throws `InvalidEnvConfigurationException` while building — decided from the ENV alone, without opening a connection or creating a file. Consumers must not assume `instanceof PDO`.
 
 The writer PDO and the Redis client are shared by several services (cache, logger, messaging). They travel as memoizing provider closures (`ProvideWriterPdo`, `BuildRedisFromEnv`) that the adapters take directly (`jardisadapter/cache` / `logger` / `messaging` >= 1.1): `CacheDatabase` / `CacheRedis`, `LoggerBuilder::addRedis()` and `ConnectionFactory::fromDbConnection()` call the provider at their own first use. A configured but unreachable Redis that nothing uses no longer fails the boot; the `redis` cache layer throws `InvalidEnvConfigurationException` at its first call, and a `redis` entry in `LOG_HANDLERS` reports the failure at the first write through the error handler the kernel sets on the logger: it writes `[BuildLoggerFromEnv] log handler "<id>" failed: <message>` to `error_log()` (only for this kernel configuration failure — other handler failures stay silent, and logging never throws into the caller). The Redis provider remembers a failed first attempt: every later access rethrows the same `InvalidEnvConfigurationException` without a new `connect`, so an unreachable host costs one connect attempt per kernel. For the `database` messaging transport, a failing provider (e.g. an unopenable SQLite path) surfaces at the first `publish()` as `PublishException` and at the first `consume()` as `ConsumerException`; the message carries the adapter's error (`jardisadapter/messaging` >= 1.1.1 raises a `ConnectionException` with the adapter error as `previous` at the connection layer).
 
@@ -321,7 +321,8 @@ key they read:
 |-------|--------|
 | Key not set, or set to an empty value (`KEY=`) | `null` — the service degrades gracefully |
 | Key set to an unparsable/invalid value (e.g. `HTTP_VERIFY_SSL=maybe`, an unknown `DB_POOL_LOAD_BALANCING_STRATEGY`) | throws `JardisCore\Kernel\Exception\InvalidEnvConfigurationException` |
-| Key set, service configured, but unreachable (Redis host; DB with the no-adapter fallback) | throws `InvalidEnvConfigurationException` — at the service's first use (Redis cache layer; a `redis` log handler reports it via `error_log()` through the error handler the kernel sets on the logger), or while building when the service cannot be lazy (no-adapter PDO). With `jardisadapter/dbconnection` the database error is the adapter's `RuntimeException` at first access |
+| Database configured (`DB_DRIVER=sqlite` / `DB_HOST`) but `jardisadapter/dbconnection` (^1.4) not installed | throws `InvalidEnvConfigurationException` while building (no I/O; there is no plain-PDO fallback) |
+| Key set, service configured, but unreachable (Redis host; DB host) | throws at the service's first use — Redis cache layer: `InvalidEnvConfigurationException`; a `redis` log handler reports it via `error_log()` through the error handler the kernel sets on the logger; database: the adapter's `RuntimeException` at first access |
 | Key holds an unresolvable `secret(...)` value (no `APP_SECRET_KEY`, no `support/secret.key`) | throws `InvalidEnvConfigurationException` naming the KEY, never the value — before any adapter is built |
 | An ENV key the packer does not recognize | ignored |
 

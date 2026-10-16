@@ -24,14 +24,12 @@ use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
  *
  * An invalid `DB_POOL_LOAD_BALANCING_STRATEGY` is the adapter's own
  * `InvalidArgumentException` (eager validation in `ConnectionPoolConfig`'s
- * constructor) — wrapped here as {@see InvalidEnvConfigurationException} so
- * {@see BuildConnectionFromEnv} can recognize and rethrow it instead of
- * swallowing it into the plain-PDO fallback (G5 rule 2).
+ * constructor) — wrapped here as {@see InvalidEnvConfigurationException} and
+ * passed on by {@see BuildConnectionFromEnv} to the caller (G5 rule 2).
  *
  * `DB_POOL_STICKY_WRITER` requires jardisadapter/dbconnection >= 1.1.0
- * (`stickyWriterDuringTransaction`); on older versions the resulting unknown
- * named argument throws and BuildConnectionFromEnv's existing \Throwable
- * fallback to plain PDO applies.
+ * (`stickyWriterDuringTransaction`); composer `conflict` keeps the kernel on
+ * ^1.4, so the named argument always exists.
  */
 final class BuildConnectionPoolConfigFromEnv
 {

@@ -22,8 +22,8 @@ use PDO;
  * (base64 of 32 raw bytes — the same decode the generated middleware applies);
  * without it there is no auth and the result is `null`. The refresh-token
  * store is `DbTokenStore` on the SAME connection the kernel hands to the
- * domain: a pool contributes its writer, a bare PDO (sqlite, or no pool
- * adapter) is wrapped via `ConnectionFactory::fromPdo(manageLifecycle: false)`
+ * domain: a pool contributes its writer, a bare PDO (only a hand-built
+ * connection — the packer always yields a pool) is wrapped via `ConnectionFactory::fromPdo(manageLifecycle: false)`
  * from jardisadapter/dbconnection — the same bridge the messaging transport
  * uses. No adapter code of its own lives here.
  *
