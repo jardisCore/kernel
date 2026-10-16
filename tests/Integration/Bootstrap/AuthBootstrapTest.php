@@ -12,6 +12,7 @@ use JardisSupport\Auth\Data\Credential;
 use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\SignedTokenAuthenticator;
 use JardisSupport\Contract\Auth\AuthServicesInterface;
+use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\TestCase;
@@ -88,8 +89,10 @@ final class AuthBootstrapTest extends TestCase
     public function testNoStatementOnAuthTokensWithoutUsingAuth(): void
     {
         $kernel = (new BuildDomainKernelFromEnv())($this->root, $this->envContent(base64_encode($this->key)));
-        $pdo = $kernel->dbConnection();
-        self::assertInstanceOf(PDO::class, $pdo);
+// Bescheid Rolf 2026-10-15: alle Dienste lazy — sqlite is a lazy pool now, its writer PDO opens on first access.
+        $pool = $kernel->dbConnection();
+        self::assertInstanceOf(ConnectionPoolInterface::class, $pool);
+        $pdo = $pool->getWriter()->pdo();
         $pdo->setAttribute(PDO::ATTR_STATEMENT_CLASS, [CountingStatement::class]);
 
         self::assertNotNull($kernel->auth());

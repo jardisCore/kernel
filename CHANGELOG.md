@@ -3,6 +3,72 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.0] — 2026-10-16 — all services lazy (Bescheid Rolf 2026-10-15)
+
+Building the kernel wires; it no longer opens a database connection, a SQLite
+file or a Redis socket. The first access opens, an error appears there.
+
+### Changed
+
+- **sqlite is a lazy `ConnectionPool`** (`ConnectionFactory::sqlite`, requires
+  `jardisadapter/dbconnection` `^1.4`) instead of an eager `new PDO`;
+  `dbConnection()` keeps its union type, but `instanceof PDO` is now only true in
+  the no-adapter fallback. An unopenable SQLite path no longer throws
+  `InvalidEnvConfigurationException` at bootstrap — the adapter's
+  `RuntimeException` surfaces at the first access.
+- The writer PDO and the Redis client reach cache, messaging and logger as
+  memoizing provider closures (`ProvideWriterPdo`, `MemoizeProvider`;
+  `BuildRedisFromEnv` now returns `?Closure(): Redis` itself — host and
+  `ext-redis` are checked eagerly without I/O, `connect`/`auth`/`select` run in
+  the provider and a failure is an `InvalidEnvConfigurationException` at the
+  first access). The adapters take the provider directly: `CacheRedis` /
+  `CacheDatabase` (`jardisadapter/cache` `^1.1`), `LoggerBuilder::addRedis()`
+  (`jardisadapter/logger` `^1.1`) and `ConnectionFactory::fromDbConnection()`
+  for the `database` messaging transport (`jardisadapter/messaging` `^1.1`).
+  `BuildCacheFromEnv`, `BuildMessagingFromEnv` accept `PDO|Closure`,
+  `BuildCacheFromEnv`/`BuildLoggerFromEnv` accept `Redis|Closure` (a ready
+  object still works). An unreachable configured Redis that nothing uses no
+  longer fails the boot; a `redis` cache layer throws
+  `InvalidEnvConfigurationException` at its first call, a `redis` log handler
+  reports the failure through the logger's error handler at its first write
+  (logging never throws into the caller).
+- The `database` messaging transport builds ONE `fromDbConnection()` connection
+  object at wiring time (no I/O); the PDO is resolved at the first
+  publish/consume. A failing provider (e.g. an unopenable SQLite path) surfaces
+  there: `jardisadapter/messaging` `^1.1.1` raises a `ConnectionException` with
+  the adapter error as `previous` at the connection layer, and
+  `messaging()->publish()` / `consume()` report it as
+  `PublishException('All publisher layers failed. Errors: ...')` /
+  `ConsumerException('All consumer layers failed. Errors: ...')` carrying the
+  adapter's message.
+- `BuildRedisFromEnv` returns `?Closure(): Redis` instead of `?Redis` (handler
+  internals, not part of the `DomainKernel` surface). The provider memoizes a
+  successful client AND a failed first attempt: the same
+  `InvalidEnvConfigurationException` is thrown again on every later access
+  without a new `connect` — an unreachable host costs one connect attempt per
+  kernel, not one per cache access or log line.
+- `BuildLoggerFromEnv` sets a logger error handler that reports one failure
+  class: an `InvalidEnvConfigurationException` from a `redis` log handler goes
+  to `error_log()` (`[BuildLoggerFromEnv] log handler "<id>" failed: ...`), so a
+  misconfigured log destination is not invisible. Every other handler failure
+  stays silent (Logger semantics); logging never throws into the caller.
+
+### Removed
+
+- `Handler\IsWriterPdoRequired` — obsolete: providing the PDO opens nothing.
+
+### Dependencies
+
+- `require-dev` and `suggest`: `jardisadapter/cache` `^1.1`,
+  `jardisadapter/logger` `^1.1`, `jardisadapter/messaging` `^1.1.1`,
+  `jardisadapter/dbconnection` `^1.4.1`.
+- `conflict`: `jardisadapter/cache` `<1.1`, `jardisadapter/logger` `<1.1`,
+  `jardisadapter/messaging` `<1.1.1`, `jardisadapter/dbconnection` `<1.4`. The
+  adapters stay optional (`suggest`), but an installed older minor would
+  receive a provider `Closure` it cannot take; the resulting `TypeError` was
+  swallowed by the handlers' `catch (\Throwable)` and the service silently
+  dropped.
+
 ## [2.6.0] — 2026-10-15 — `auth()` accessor, built from `AUTH_TOKEN_KEY`
 
 `jardissupport/contracts` 2.11 adds `DomainKernelInterface::auth()`; kernel 2.5.x

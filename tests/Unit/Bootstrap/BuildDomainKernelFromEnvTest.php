@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace JardisCore\Kernel\Tests\Unit\Bootstrap;
 
+use JardisAdapter\Cache\Adapter\CacheRedis;
+use JardisAdapter\Cache\Cache;
+use JardisAdapter\Logger\Handler\LogRedis;
+use JardisAdapter\Logger\Logger;
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisCore\Kernel\Tests\Support\EnvIsolation;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
+use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
@@ -82,10 +87,11 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         // 8: httpClient() — built unconditionally once jardisadapter/http is installed.
         self::assertInstanceOf(ClientInterface::class, $kernel->httpClient());
 
-        // 9: dbConnection() — sqlite in-memory fallback (no Docker dependency).
+        // 9: dbConnection() — sqlite in-memory (no Docker dependency). Bescheid
+        // Rolf 2026-10-15: alle Dienste lazy — a pool whose writer PDO opens on first access.
         $connection = $kernel->dbConnection();
-        self::assertInstanceOf(PDO::class, $connection);
-        self::assertSame('sqlite', $connection->getAttribute(PDO::ATTR_DRIVER_NAME));
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertSame('sqlite', $connection->getWriter()->pdo()->getAttribute(PDO::ATTR_DRIVER_NAME));
 
         // 10: mailer() — MAIL_HOST not configured in the fixture -> documented null.
         self::assertNull($kernel->mailer());
@@ -121,15 +127,42 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         self::assertSame('hello', $cache->get('bootstrap_test_key'));
     }
 
-    public function testRedisFanOutRaisesWhenRedisIsConfiguredButUnreachable(): void
+    public function testRedisFanOutBuildsWhenRedisIsConfiguredButUnreachableAndRaisesAtFirstAccess(): void
     {
-        // R1.3 rule 3 (G5): REDIS_HOST is set but unreachable — a configured,
-        // unreachable service now throws instead of BuildRedisFromEnv
-        // silently returning null to both cache and logger (behaviour change,
-        // CHANGELOG.md). See UnreachableServiceExceptionTest for the
-        // dedicated Integration coverage (PLAN.md AK2.5).
+        // R1.3 rule 3 (G5) stays loud: REDIS_HOST is set but unreachable, so a
+        // configured service is never silently dropped to null. Since Bescheid
+        // Rolf 2026-10-15 (alle Dienste lazy) it raises where Redis is first
+        // used, not while the kernel is built (CHANGELOG.md). See
+        // LazyBootstrapInvariantTest for the full invariant.
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('RedisFanOutUnreachable'));
+        $cache = $kernel->cache();
+        self::assertNotNull($cache);
+        self::assertNotNull($kernel->logger());
+
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('RedisFanOutUnreachable'));
+        $cache->get('anything');
+    }
+
+    public function testCacheAndLoggerShareOneRedisClientFromOneProvider(): void
+    {
+        // D4 fan-out: the packer builds ONE Redis provider and hands it to both
+        // consumers. Red if the packer called buildRedis twice — each provider
+        // would open its own client, and the two objects below would differ.
+        $kernel = (new BuildDomainKernelFromEnv())(
+            sys_get_temp_dir(),
+            "REDIS_HOST=kernel-test-redis\nREDIS_PORT=6379\nCACHE_LAYERS=redis\nLOG_HANDLERS=redis\n",
+        );
+        $cache = $kernel->cache();
+        $logger = $kernel->logger();
+        self::assertInstanceOf(Cache::class, $cache);
+        self::assertInstanceOf(Logger::class, $logger);
+
+        $cacheRedis = $cache->getLayers()[0];
+        self::assertInstanceOf(CacheRedis::class, $cacheRedis);
+        $logHandlers = $logger->getHandlersByClass(LogRedis::class);
+        self::assertCount(1, $logHandlers);
+
+        self::assertSame($cacheRedis->getConnection(), reset($logHandlers)->getRedis());
     }
 }

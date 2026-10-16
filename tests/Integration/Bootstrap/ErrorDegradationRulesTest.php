@@ -6,6 +6,7 @@ namespace JardisCore\Kernel\Tests\Integration\Bootstrap;
 
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
+use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -67,6 +68,9 @@ final class ErrorDegradationRulesTest extends TestCase
         // new exception branch — G5 rule 3 only fires on an actual failure.
         $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('FullConfig'));
 
-        self::assertInstanceOf(PDO::class, $kernel->dbConnection());
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — sqlite is a lazy pool now.
+        $connection = $kernel->dbConnection();
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertSame('sqlite', $connection->getWriter()->pdo()->getAttribute(PDO::ATTR_DRIVER_NAME));
     }
 }

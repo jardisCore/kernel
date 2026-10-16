@@ -32,26 +32,61 @@ final class BuildConnectionFromEnvTest extends TestCase
             'db_path' => ':memory:',
         ]));
 
-        self::assertInstanceOf(PDO::class, $connection);
-        self::assertSame('sqlite', $connection->getAttribute(PDO::ATTR_DRIVER_NAME));
-        self::assertSame(PDO::ERRMODE_EXCEPTION, $connection->getAttribute(PDO::ATTR_ERRMODE));
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — a pool whose single
+        // writer is not connected yet; the PDO is only created on first access.
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertFalse($connection->getReaders()[0]->isConnected());
+        $pdo = $connection->getWriter()->pdo();
+        self::assertSame('sqlite', $pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
+        self::assertSame(PDO::ERRMODE_EXCEPTION, $pdo->getAttribute(PDO::ATTR_ERRMODE));
     }
 
     public function testSqliteDefaultsToInMemoryWhenPathMissing(): void
     {
         $connection = (new BuildConnectionFromEnv())($this->envFrom(['db_driver' => 'sqlite']));
 
-        self::assertInstanceOf(PDO::class, $connection);
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy.
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertSame('sqlite', $connection->getWriter()->pdo()->getAttribute(PDO::ATTR_DRIVER_NAME));
     }
 
-    public function testSqliteUnopenableFileThrows(): void
+    public function testSqliteUnopenableFileBuildsLazyAndThrowsOnFirstAccess(): void
     {
-        $this->expectException(InvalidEnvConfigurationException::class);
-
-        (new BuildConnectionFromEnv())($this->envFrom([
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — the bootstrap does not
+        // open the file, the error appears at the first access (not at build).
+        $connection = (new BuildConnectionFromEnv())($this->envFrom([
             'db_driver' => 'sqlite',
             'db_path' => '/no/such/directory/at/all/db.sqlite',
         ]));
+
+        self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+        self::assertFalse($connection->getReaders()[0]->isConnected());
+
+        $this->expectException(RuntimeException::class);
+
+        $connection->getWriter()->pdo();
+    }
+
+    public function testSqliteFileIsNotCreatedAtBuildTime(): void
+    {
+        $path = sys_get_temp_dir() . '/kernel-lazy-' . uniqid() . '.sqlite';
+
+        try {
+            $connection = (new BuildConnectionFromEnv())($this->envFrom([
+                'db_driver' => 'sqlite',
+                'db_path' => $path,
+            ]));
+
+            self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
+            self::assertFileDoesNotExist($path);
+
+            $connection->getWriter()->pdo();
+            self::assertFileExists($path);
+        } finally {
+            foreach ([$path, $path . '-wal', $path . '-shm'] as $file) {
+                @unlink($file);
+            }
+        }
     }
 
     public function testNoHostReturnsNullForDefaultMysqlDriver(): void

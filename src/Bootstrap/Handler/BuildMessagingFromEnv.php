@@ -54,9 +54,10 @@ use RuntimeException;
  *
  * Database is the broker-less transport (Transactional Outbox): it does not
  * open a connection of its own and has no `MESSAGING_DB_DSN`-style key —
- * it REUSES the writer PDO the packer already built from `DB_*`
- * ({@see ExtractPdoFromConnection}, handed in as this handler's `$pdo`
- * argument) via `ConnectionFactory::fromPdo(..., manageLifecycle: false)`:
+ * it REUSES the writer PDO of the connection the packer already built from
+ * `DB_*` ({@see ProvideWriterPdo}, handed in as this handler's `$pdo`
+ * argument) via `ConnectionFactory::fromDbConnection(..., manageLifecycle: false)`
+ * (a ready PDO via `fromPdo()`):
  * one stack, one database, and the messaging side never closes a handle the
  * domain code still uses. Table/polling/retry behaviour comes from the six
  * optional `MESSAGING_DB_*` keys, each defaulting to the adapter's own
@@ -94,9 +95,8 @@ use RuntimeException;
  * Two different things are lazy vs. eager here, deliberately not the same
  * boundary (G5 rule 2 vs. rule 3):
  * - **Eager (this handler, at boot):** the connection OBJECT for the chosen
- *   transport (`ConnectionFactory::kafka()`/`rabbitMq()`/`redis()`, and
- *   `fromPdo()` for database) is built right here, inside
- *   `buildKafka()`/`buildRabbitMq()`/`buildRedis()`/`buildDatabase()` —
+ *   transport (`ConnectionFactory::kafka()`/`rabbitMq()`/`redis()`) is built
+ *   right here, inside `buildKafka()`/`buildRabbitMq()`/`buildRedis()` —
  *   never inside a lazy closure. Building it does no I/O (`connect()` is a
  *   separate step the adapter's Publisher/Consumer classes call lazily), but
  *   it DOES run `ConnectionConfig`'s constructor validation (non-empty host,
@@ -104,8 +104,10 @@ use RuntimeException;
  *   configured-but-missing required field itself ({@see IsEnvValueUnset}):
  *   `KAFKA_BROKERS` for kafka, `RABBITMQ_HOST`/`REDIS_HOST` for the next
  *   two (no default — an implicit "localhost" would silently hide a missing
- *   value the same way `KAFKA_BROKERS` used to), and a usable writer PDO for
- *   database. Both failure kinds surface
+ *   value the same way `KAFKA_BROKERS` used to), and a writer-PDO provider
+ *   for database (its connection is opened lazily — {@see ProvideWriterPdo};
+ *   the adapter's `fromDbConnection()` resolves it at the first
+ *   publish/consume). Both failure kinds surface
  *   as {@see InvalidEnvConfigurationException} the moment `messaging()` is
  *   first called on the packed kernel, not on first `publish()`.
  * - **Lazy (the adapter's own `MessagingService`):** the actual
@@ -133,11 +135,12 @@ final class BuildMessagingFromEnv
 
     /**
      * @param Closure(string): mixed $env
-     * @param ?PDO $pdo The writer PDO the packer already built from `DB_*`
-     *                  ({@see ExtractPdoFromConnection}) — only the database
+     * @param PDO|(Closure(): PDO)|null $pdo The writer PDO the packer already
+     *                  built from `DB_*` — or, as the packer passes it, a lazy
+     *                  provider ({@see ProvideWriterPdo}) — only the database
      *                  transport uses it; the broker transports ignore it.
      */
-    public function __invoke(Closure $env, ?PDO $pdo = null): ?MessagingServiceInterface
+    public function __invoke(Closure $env, PDO|Closure|null $pdo = null): ?MessagingServiceInterface
     {
         if (!class_exists(ConnectionFactory::class)) {
             // @codeCoverageIgnoreStart
@@ -324,7 +327,7 @@ final class BuildMessagingFromEnv
     /** @param Closure(string): mixed $env */
     private function buildDatabase(
         Closure $env,
-        ?PDO $pdo,
+        PDO|Closure|null $pdo,
         ConnectionFactory $connectionFactory,
         PublisherFactory $publisherFactory,
         ConsumerFactory $consumerFactory,
@@ -337,10 +340,16 @@ final class BuildMessagingFromEnv
 
         $options = $this->databaseOptions($env);
 
-        // Eager (class docblock): wraps the writer PDO the packer already
-        // built — no second connect() and, with manageLifecycle: false, no
-        // disconnect() either; the domain's own connection stays in charge.
-        $connection = $connectionFactory->fromPdo($pdo, manageLifecycle: false);
+        // Lazy (Bescheid Rolf 2026-10-15: all services lazy): the adapter owns the
+        // laziness. A provider goes to `fromDbConnection()` — resolved at the first
+        // `getClient()`, i.e. when the first publish/consume runs, never while the
+        // kernel is built; a ready PDO keeps `fromPdo()`. With manageLifecycle: false
+        // there is no second connect() and no disconnect(), the domain's own
+        // connection stays in charge. One connection object serves publisher and
+        // consumer.
+        $connection = $pdo instanceof Closure
+            ? $connectionFactory->fromDbConnection($pdo, manageLifecycle: false)
+            : $connectionFactory->fromPdo($pdo, manageLifecycle: false);
 
         return new MessagingService(
             publisherFactory: static fn () => new MessagePublisher(

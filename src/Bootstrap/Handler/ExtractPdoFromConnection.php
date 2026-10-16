@@ -17,6 +17,7 @@ use PDO;
  */
 final class ExtractPdoFromConnection
 {
+    /** @return ($connection is null ? null : PDO) */
     public function __invoke(ConnectionPoolInterface|PDO|null $connection): ?PDO
     {
         return match (true) {

@@ -7,6 +7,7 @@ namespace JardisCore\Kernel\Bootstrap\Handler;
 use Closure;
 use JardisAdapter\Logger\LoggerBuilder;
 use JardisCore\Kernel\Bootstrap\Data\LogHandler;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use Psr\Log\LoggerInterface;
 use Redis;
 
@@ -20,11 +21,23 @@ use Redis;
  * The Redis connection is part of the Bootstrap-Packer's
  * Redis fan-out (D4) — built once by `BuildRedisFromEnv` and shared with
  * `BuildCacheFromEnv`.
+ *
+ * `$redis` may be a provider Closure ({@see BuildRedisFromEnv}): `addRedis()`
+ * (jardisadapter/logger >= 1.1) takes it as is and calls it at the first log
+ * write, so a listed `redis` handler opens nothing while the logger is built.
+ * A provider failure at that moment reaches the logger's error handler (the
+ * handler does not swallow it, the `Logger` reports it there). The error
+ * handler set here reports exactly one class of failure: the kernel's own
+ * {@see InvalidEnvConfigurationException} (a configured Redis that cannot be
+ * reached) goes to `error_log()` as `[BuildLoggerFromEnv] log handler "<id>"
+ * failed: <message>` — otherwise a misconfigured log destination would stay
+ * invisible. Every other handler failure stays silent: logging must not
+ * throw into, nor make noise for, the caller (Logger semantics).
  */
 final class BuildLoggerFromEnv
 {
     /** @param Closure(string): mixed $env */
-    public function __invoke(Closure $env, ?Redis $redis = null): ?LoggerInterface
+    public function __invoke(Closure $env, Redis|Closure|null $redis = null): ?LoggerInterface
     {
         if ((new IsEnvValueUnset())($env('log_handlers')) || !class_exists(LoggerBuilder::class)) {
             return null;
@@ -33,6 +46,17 @@ final class BuildLoggerFromEnv
         $context = (string) ($env('log_context') ?? 'app');
         $defaultLevel = (string) ($env('log_level') ?? 'INFO');
         $builder = new LoggerBuilder($context);
+        $builder->setErrorHandler(
+            static function (\Throwable $e, string $handlerId) {
+                if ($e instanceof InvalidEnvConfigurationException) {
+                    error_log(sprintf(
+                        '[BuildLoggerFromEnv] log handler "%s" failed: %s',
+                        $handlerId,
+                        $e->getMessage(),
+                    ));
+                }
+            }
+        );
 
         $entries = array_map('trim', explode(',', (string) $env('log_handlers')));
 

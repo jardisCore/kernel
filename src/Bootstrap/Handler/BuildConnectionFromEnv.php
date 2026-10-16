@@ -20,9 +20,11 @@ use PDOException;
  * replicas when DB_READER*_HOST is set): NO connection is opened here — the
  * writer/readers open on first access, so a request without database access
  * opens no connection, and an unreachable host surfaces at first access, not
- * at bootstrap. Without the adapter this falls back to a plain `new PDO`,
- * which is EAGER (connects immediately, errors at bootstrap). sqlite is
- * always a plain PDO (a local file, no socket). Optional pool tuning
+ * at bootstrap. sqlite is the same: a pool whose single writer opens (and
+ * applies its PRAGMAs) on first access (`jardisadapter/dbconnection` >= 1.4)
+ * — no file is created at bootstrap, an unopenable path surfaces at first
+ * access. Without the adapter both fall back to a plain `new PDO`, which is
+ * EAGER (connects immediately, errors at bootstrap). Optional pool tuning
  * via DB_POOL_* keys ({@see BuildConnectionPoolConfigFromEnv}); without
  * any of them the pool is built with the adapter defaults.
  *
@@ -33,11 +35,13 @@ use PDOException;
  *
  * G5 error rules (R1.3): no `db_driver`/`db_host` at all means the database
  * is not configured — `null` (unchanged). Once a driver is configured
- * (`db_driver=sqlite` or `db_host` set), a sqlite open failure or an
- * invalid `DB_POOL_*` value throws {@see InvalidEnvConfigurationException}
- * instead of degrading to `null` with a bare `error_log`. A mysql/pgsql
- * connection error on the lazy pool path is thrown at first access (by the
- * adapter), not here; on the eager no-adapter PDO path it is thrown here.
+ * (`db_driver=sqlite` or `db_host` set), an invalid `DB_POOL_*` value
+ * throws {@see InvalidEnvConfigurationException} instead of degrading to
+ * `null` with a bare `error_log`, and so does a sqlite open failure in the
+ * no-adapter fallback (eager `new PDO`, thrown while building). With the
+ * adapter a sqlite path is validated and opened at first access like a
+ * mysql/pgsql connection error: the adapter throws there, not here; on the
+ * eager no-adapter PDO path a mysql/pgsql error is thrown here as well.
  * The invalid-pool-strategy case is rethrown immediately (see `buildPool`),
  * before the plain-PDO fallback is attempted — a config error must never be swallowed by the fallback (Senior-PHP
  * blocker).
@@ -71,9 +75,15 @@ final class BuildConnectionFromEnv
     }
 
     /** @param Closure(string): mixed $env */
-    private function buildSqlite(Closure $env): PDO
+    private function buildSqlite(Closure $env): ConnectionPoolInterface|PDO
     {
         $path = (string) ($env('db_path') ?? ':memory:');
+
+        if (class_exists(ConnectionPool::class)) {
+            // Bescheid Rolf 2026-10-15: all services lazy. The sqlite writer
+            // opens on first pdo() (dbconnection >= 1.4), like mysql/pgsql.
+            return new ConnectionPool((new ConnectionFactory())->sqlite($path));
+        }
 
         try {
             return new PDO('sqlite:' . $path, options: self::PDO_OPTIONS);
