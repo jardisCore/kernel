@@ -16,6 +16,8 @@ use PDO;
  * from a pool opens the connection ({@see ExtractPdoFromConnection}). The
  * returned provider defers exactly that to the consumer's first use and hands
  * the same PDO to every caller. No connection configured: no provider (`null`).
+ * A PDO connection is only possible in a hand-built `DomainKernel` (the packer
+ * always yields a pool); the branch stays as that hand-built path.
  */
 final class ProvideWriterPdo
 {

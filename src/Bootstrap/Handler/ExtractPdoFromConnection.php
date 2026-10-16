@@ -12,6 +12,9 @@ use PDO;
  * feeds the optional `db` cache layer (`BuildCacheFromEnv`), which needs a PDO
  * regardless of whether the domain runs on a bare connection or a pool.
  *
+ * The PDO branch stays on purpose as the hand-built path (`DomainKernel` still
+ * accepts a PDO); the packer itself always yields a pool.
+ *
  * Kept as its own Closure (Closure-Orchestrator: one atomic unit, one reason
  * to change) rather than inline match logic in the packer's `__invoke()`.
  */

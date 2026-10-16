@@ -3,6 +3,37 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.0] — 2026-10-16 — no adapter, no fallback (Entscheid O23 2026-10-16)
+
+Completes the lazy bootstrap (Bescheid Rolf 2026-10-15): the last eager path —
+the plain-PDO fallback of `BuildConnectionFromEnv` — is removed.
+
+### Changed
+
+- A configured database (`DB_DRIVER=sqlite` or a set `DB_HOST`) without
+  `jardisadapter/dbconnection` (^1.4) now throws
+  `InvalidEnvConfigurationException` while building the kernel — decided from
+  the ENV and `class_exists()` alone, no connection, no SQLite file. Without a
+  database configuration `dbConnection()` stays `null`. composer keeps the
+  adapter in `suggest` (text sharpened: required as soon as `DB_*` is
+  configured). **Behaviour change** for installations that relied on the
+  eager `new PDO` without the adapter: require `jardisadapter/dbconnection`.
+  Minor, not major (Entscheid O23): the behaviour changes only for installations
+  configuring `DB_*` without `jardisadapter/dbconnection`, which was always
+  `suggest`; no known consumer is affected.
+- `BuildConnectionFromEnv` returns `?ConnectionPoolInterface` internally;
+  `DomainKernel::dbConnection()` keeps `ConnectionPoolInterface|PDO|null`
+  (a hand-built kernel may still be given a `PDO`).
+- Errors while assembling the pool are passed on to the caller instead of being
+  logged and swallowed; an invalid `DB_POOL_*` value still surfaces as
+  `InvalidEnvConfigurationException`.
+
+### Removed
+
+- The no-adapter plain-PDO path of `BuildConnectionFromEnv` (`buildPdo`, the raw
+  PDO branch for sqlite, the `catch (\Throwable)` fallback in `buildPool`, the
+  `PDO_OPTIONS` constant) and its `error_log` line.
+
 ## [2.7.0] — 2026-10-16 — all services lazy (Bescheid Rolf 2026-10-15)
 
 Building the kernel wires; it no longer opens a database connection, a SQLite

@@ -9,24 +9,26 @@ use JardisAdapter\DbConnection\ConnectionPool;
 use JardisAdapter\DbConnection\Factory\ConnectionFactory;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
-use PDO;
-use PDOException;
 
 /**
  * Builds a database connection from ENV values.
  *
- * Supports mysql, pgsql, sqlite. With jardisadapter/dbconnection installed,
- * mysql/pgsql return a ConnectionPool (a single lazy writer, plus read
- * replicas when DB_READER*_HOST is set): NO connection is opened here — the
- * writer/readers open on first access, so a request without database access
- * opens no connection, and an unreachable host surfaces at first access, not
- * at bootstrap. sqlite is the same: a pool whose single writer opens (and
- * applies its PRAGMAs) on first access (`jardisadapter/dbconnection` >= 1.4)
- * — no file is created at bootstrap, an unopenable path surfaces at first
- * access. Without the adapter both fall back to a plain `new PDO`, which is
- * EAGER (connects immediately, errors at bootstrap). Optional pool tuning
- * via DB_POOL_* keys ({@see BuildConnectionPoolConfigFromEnv}); without
- * any of them the pool is built with the adapter defaults.
+ * Supports mysql, pgsql, sqlite — always as a `ConnectionPool` from
+ * jardisadapter/dbconnection (`^1.4`). The pool holds a single lazy writer
+ * (plus read replicas when DB_READER*_HOST is set): NO connection is opened
+ * here — the writer/readers open on first access, so a request without
+ * database access opens no connection, and an unreachable host (or an
+ * unopenable sqlite path, which is validated and gets its PRAGMAs at the first
+ * open) surfaces at first access, not at bootstrap. Optional pool tuning via
+ * DB_POOL_* keys ({@see BuildConnectionPoolConfigFromEnv}); without any of
+ * them the pool is built with the adapter defaults.
+ *
+ * There is NO plain-PDO fallback (Entscheid O23 2026-10-16, Bescheid Rolf
+ * 2026-10-15: all services lazy — an eager `new PDO` would be the one
+ * remaining eager path). A configured database without the adapter is a
+ * configuration error: {@see InvalidEnvConfigurationException} at build time,
+ * decided purely from the ENV and `class_exists()` — no I/O, no file, no
+ * socket.
  *
  * Presence checks (`db_host`, `db_reader{n}_host`) go through
  * {@see IsEnvValueUnset}: DotEnv's cast chain reads an explicitly empty
@@ -34,32 +36,27 @@ use PDOException;
  * `=== null` check would misread it as configured.
  *
  * G5 error rules (R1.3): no `db_driver`/`db_host` at all means the database
- * is not configured — `null` (unchanged). Once a driver is configured
- * (`db_driver=sqlite` or `db_host` set), an invalid `DB_POOL_*` value
- * throws {@see InvalidEnvConfigurationException} instead of degrading to
- * `null` with a bare `error_log`, and so does a sqlite open failure in the
- * no-adapter fallback (eager `new PDO`, thrown while building). With the
- * adapter a sqlite path is validated and opened at first access like a
- * mysql/pgsql connection error: the adapter throws there, not here; on the
- * eager no-adapter PDO path a mysql/pgsql error is thrown here as well.
- * The invalid-pool-strategy case is rethrown immediately (see `buildPool`),
- * before the plain-PDO fallback is attempted — a config error must never be swallowed by the fallback (Senior-PHP
- * blocker).
+ * is not configured — `null` (unchanged). "Configured" is `db_driver=sqlite`
+ * or a set `db_host`. Once configured, an invalid `DB_POOL_*` value throws
+ * {@see InvalidEnvConfigurationException} (rethrown by `buildPool` as is), and
+ * every other error while assembling the pool is passed on to the caller —
+ * nothing is swallowed into a degraded connection.
  */
 final class BuildConnectionFromEnv
 {
-    private const PDO_OPTIONS = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ];
+    /** @param (Closure(): bool)|null $adapterAvailable replaces the `class_exists(ConnectionPool::class)` check (test seam) */
+    public function __construct(private readonly ?Closure $adapterAvailable = null)
+    {
+    }
 
     /** @param Closure(string): mixed $env */
-    public function __invoke(Closure $env): ConnectionPoolInterface|PDO|null
+    public function __invoke(Closure $env): ?ConnectionPoolInterface
     {
         $driver = (string) ($env('db_driver') ?? 'mysql');
 
         if ($driver === 'sqlite') {
+            $this->assertAdapterInstalled();
+
             return $this->buildSqlite($env);
         }
 
@@ -67,63 +64,40 @@ final class BuildConnectionFromEnv
             return null;
         }
 
-        if (class_exists(ConnectionPool::class)) {
-            return $this->buildPool($env, $driver, $this->findReaders($env));
-        }
+        $this->assertAdapterInstalled();
 
-        return $this->buildPdo($env, $driver);
+        return $this->buildPool($env, $driver, $this->findReaders($env));
+    }
+
+    private function assertAdapterInstalled(): void
+    {
+        $installed = $this->adapterAvailable !== null
+            ? ($this->adapterAvailable)()
+            : class_exists(ConnectionPool::class);
+
+        if (!$installed) {
+            throw new InvalidEnvConfigurationException(
+                'A database is configured (DB_DRIVER/DB_HOST) but jardisadapter/dbconnection (^1.4) is not '
+                . 'installed — require it to use the database; there is no plain-PDO fallback.'
+            );
+        }
     }
 
     /** @param Closure(string): mixed $env */
-    private function buildSqlite(Closure $env): ConnectionPoolInterface|PDO
+    private function buildSqlite(Closure $env): ConnectionPoolInterface
     {
         $path = (string) ($env('db_path') ?? ':memory:');
 
-        if (class_exists(ConnectionPool::class)) {
-            // Bescheid Rolf 2026-10-15: all services lazy. The sqlite writer
-            // opens on first pdo() (dbconnection >= 1.4), like mysql/pgsql.
-            return new ConnectionPool((new ConnectionFactory())->sqlite($path));
-        }
-
-        try {
-            return new PDO('sqlite:' . $path, options: self::PDO_OPTIONS);
-        } catch (PDOException $e) {
-            throw new InvalidEnvConfigurationException(
-                sprintf('SQLite database at "%s" could not be opened: %s', $path, $e->getMessage()),
-                previous: $e,
-            );
-        }
-    }
-
-    /** @param Closure(string): mixed $env */
-    private function buildPdo(Closure $env, string $driver): PDO
-    {
-        $host = (string) $env('db_host');
-        $port = (int) ($env('db_port') ?? ($driver === 'pgsql' ? 5432 : 3306));
-        $user = (string) ($env('db_user') ?? 'root');
-        $password = (string) ($env('db_password') ?? '');
-        $database = (string) ($env('db_database') ?? '');
-        $charset = (string) ($env('db_charset') ?? ($driver === 'pgsql' ? 'utf8' : 'utf8mb4'));
-
-        $dsn = $driver === 'pgsql'
-            ? "pgsql:host=$host;port=$port;dbname=$database;options='--client_encoding=$charset'"
-            : "$driver:host=$host;port=$port;dbname=$database;charset=$charset";
-
-        try {
-            return new PDO($dsn, $user, $password, self::PDO_OPTIONS);
-        } catch (PDOException $e) {
-            throw new InvalidEnvConfigurationException(
-                sprintf('Database connection to host "%s" failed: %s', $host, $e->getMessage()),
-                previous: $e,
-            );
-        }
+        // Bescheid Rolf 2026-10-15: all services lazy. The sqlite writer
+        // opens on first pdo() (dbconnection >= 1.4), like mysql/pgsql.
+        return new ConnectionPool((new ConnectionFactory())->sqlite($path));
     }
 
     /**
      * @param Closure(string): mixed $env
      * @param array<int, array{host: string, port: ?int, user: ?string, password: ?string, database: ?string}> $readers
      */
-    private function buildPool(Closure $env, string $driver, array $readers): ConnectionPoolInterface|PDO
+    private function buildPool(Closure $env, string $driver, array $readers): ConnectionPoolInterface
     {
         $host = (string) $env('db_host');
         $port = (int) ($env('db_port') ?? ($driver === 'pgsql' ? 5432 : 3306));
@@ -132,47 +106,35 @@ final class BuildConnectionFromEnv
         $database = (string) ($env('db_database') ?? '');
         $charset = (string) ($env('db_charset') ?? ($driver === 'pgsql' ? 'utf8' : 'utf8mb4'));
 
-        try {
-            // Built first: an invalid DB_POOL_* value fails fast and is
-            // rethrown below (InvalidEnvConfigurationException catch),
-            // before any connection opens.
-            $config = (new BuildConnectionPoolConfigFromEnv())($env);
+        // Built first: an invalid DB_POOL_* value fails fast with an
+        // InvalidEnvConfigurationException (from BuildConnectionPoolConfigFromEnv),
+        // before any connection object is created. Entscheid O23 2026-10-16: no
+        // catch-\Throwable fallback — errors while assembling the pool are
+        // passed on, not degraded into an eager PDO.
+        $config = (new BuildConnectionPoolConfigFromEnv())($env);
 
-            $factory = new ConnectionFactory();
+        $factory = new ConnectionFactory();
 
-            $writerConn = $driver === 'pgsql'
-                ? $factory->postgres($host, $user, $password, $database, $port)
-                : $factory->mysql($host, $user, $password, $database, $port, $charset);
+        $writerConn = $driver === 'pgsql'
+            ? $factory->postgres($host, $user, $password, $database, $port)
+            : $factory->mysql($host, $user, $password, $database, $port, $charset);
 
-            $readerConns = [];
-            foreach ($readers as $reader) {
-                $rHost = $reader['host'];
-                $rPort = $reader['port'] ?? $port;
-                $rUser = $reader['user'] ?? $user;
-                $rPass = $reader['password'] ?? $password;
-                $rDb = $reader['database'] ?? $database;
+        $readerConns = [];
+        foreach ($readers as $reader) {
+            $rHost = $reader['host'];
+            $rPort = $reader['port'] ?? $port;
+            $rUser = $reader['user'] ?? $user;
+            $rPass = $reader['password'] ?? $password;
+            $rDb = $reader['database'] ?? $database;
 
-                $readerConns[] = $driver === 'pgsql'
-                    ? $factory->postgres($rHost, $rUser, $rPass, $rDb, $rPort)
-                    : $factory->mysql($rHost, $rUser, $rPass, $rDb, $rPort, $charset);
-            }
-
-            return $config === null
-                ? new ConnectionPool($writerConn, $readerConns)
-                : new ConnectionPool($writerConn, $readerConns, $config);
-        } catch (InvalidEnvConfigurationException $e) {
-            // An invalid DB_POOL_* value is a config error, not a connectivity
-            // problem — it must never disappear into the plain-PDO fallback
-            // below (Senior-PHP blocker, G5 rule 2).
-            throw $e;
-        } catch (\Throwable $e) {
-            error_log(sprintf(
-                '[BuildConnectionFromEnv] ConnectionPool build failed, falling back to plain PDO. Reason: %s',
-                $e->getMessage(),
-            ));
-
-            return $this->buildPdo($env, $driver);
+            $readerConns[] = $driver === 'pgsql'
+                ? $factory->postgres($rHost, $rUser, $rPass, $rDb, $rPort)
+                : $factory->mysql($rHost, $rUser, $rPass, $rDb, $rPort, $charset);
         }
+
+        return $config === null
+            ? new ConnectionPool($writerConn, $readerConns)
+            : new ConnectionPool($writerConn, $readerConns, $config);
     }
 
     /**

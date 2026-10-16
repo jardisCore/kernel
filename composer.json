@@ -33,7 +33,7 @@
     },
     "suggest": {
         "jardisadapter/cache": "For multi-layer caching (Memory, Redis, Database) via the Bootstrap-Packer; requires ^1.1 (lazy Redis/PDO providers)",
-        "jardisadapter/dbconnection": "For lazy ConnectionPool (connection opens on first access) with read/write splitting, health checks and load balancing; requires ^1.4",
+        "jardisadapter/dbconnection": "Lazy ConnectionPool (connection opens on first access) with read/write splitting, health checks and load balancing; requires ^1.4 and is required as soon as DB_* is configured (no plain-PDO fallback)",
         "jardisadapter/eventdispatcher": "For PSR-14 event dispatching via the Bootstrap-Packer",
         "jardisadapter/filesystem": "For local and S3 filesystem abstraction via the Bootstrap-Packer",
         "jardisadapter/http": "For PSR-18 HTTP client with handler pipeline via the Bootstrap-Packer",

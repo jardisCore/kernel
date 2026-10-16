@@ -22,10 +22,12 @@ use PDO;
  * (base64 of 32 raw bytes — the same decode the generated middleware applies);
  * without it there is no auth and the result is `null`. The refresh-token
  * store is `DbTokenStore` on the SAME connection the kernel hands to the
- * domain: a pool contributes its writer, a bare PDO (sqlite, or no pool
- * adapter) is wrapped via `ConnectionFactory::fromPdo(manageLifecycle: false)`
- * from jardisadapter/dbconnection — the same bridge the messaging transport
- * uses. No adapter code of its own lives here.
+ * domain: a pool contributes its writer, a bare PDO is wrapped via
+ * `ConnectionFactory::fromPdo(manageLifecycle: false)` from
+ * jardisadapter/dbconnection — the same bridge the messaging transport uses.
+ * The PDO branch stays on purpose as the hand-built path: `DomainKernel`
+ * still accepts a PDO, the packer itself always yields a pool. No adapter code
+ * of its own lives here.
  *
  * The result is a {@see LazyAuthServices}: resolving the writer may open the
  * connection, so the store is only built on first use. Everything that can be

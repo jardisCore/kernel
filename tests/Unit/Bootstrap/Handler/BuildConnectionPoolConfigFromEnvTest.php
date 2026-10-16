@@ -118,8 +118,9 @@ final class BuildConnectionPoolConfigFromEnvTest extends TestCase
     public function testInvalidStrategyWrapsAdapterValidationAsInvalidEnvConfigurationException(): void
     {
         // R1 fix: the handler wraps the adapter's InvalidArgumentException so
-        // BuildConnectionFromEnv can recognize and RETHROW it instead of
-        // swallowing it into the plain-PDO fallback (Senior-PHP blocker).
+        // the config error reaches the caller of BuildConnectionFromEnv as an
+        // InvalidEnvConfigurationException (Senior-PHP blocker). Entscheid O23
+        // 2026-10-16: the plain-PDO fallback it once had to dodge is gone.
         $this->expectException(InvalidEnvConfigurationException::class);
 
         (new BuildConnectionPoolConfigFromEnv())($this->envFrom([

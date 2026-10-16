@@ -62,12 +62,13 @@ Second breaking wave, tracked in `docs/env-konfiguration/` (repo
   instead of silently degrading. Fixes a prior security bug where
   `HTTP_VERIFY_SSL=true` (the string, cast to `bool(true)`) compared `===
   'true'` and disabled SSL verification.
-- **Invalid config no longer disappears into the PDO fallback.**
-  `InvalidEnvConfigurationException` is rethrown from
-  `BuildConnectionFromEnv`/`BuildRedisFromEnv`'s catch-`\Throwable` paths — a
-  typo in `DB_POOL_LOAD_BALANCING_STRATEGY` or an unreachable **configured**
-  host now fails loudly instead of silently degrading (missing config still
-  degrades to `null`, that distinction is intentional).
+- **Invalid config never degrades.** A typo in
+  `DB_POOL_LOAD_BALANCING_STRATEGY` or an unreachable **configured** Redis host
+  fails loudly with `InvalidEnvConfigurationException` (missing config still
+  degrades to `null`, that distinction is intentional). `BuildConnectionFromEnv`
+  has no `catch (\Throwable)` and no plain-PDO fallback any more (Entscheid O23
+  2026-10-16): a configured database without `jardisadapter/dbconnection` (^1.4)
+  throws `InvalidEnvConfigurationException` while building, without I/O.
 - **Credential-shaped ENV keys survive the cast chain as strings.**
   `Bootstrap\Data\CredentialEnvKeySuffixes` (`_PASSWORD`, `_USER`, `_SECRET`,
   `_TOKEN`) are registered via `DotEnv::addRawKeys()` before `loadPrivate()`
@@ -259,7 +260,9 @@ $ecommerce = new Ecommerce($kernel);
   `jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer,messaging}` (and `jardissupport/auth` for `auth()`).
   Each Handler closure degrades to `null` via `class_exists()` guards when its
   adapter is missing or its ENV is unconfigured — nothing throws for a missing
-  optional service. **Exception:** a value that IS configured but invalid
+  optional service. **Exceptions:** `DB_*` configured (`DB_DRIVER=sqlite` or
+  `DB_HOST`) while `jardisadapter/dbconnection` is missing throws
+  `InvalidEnvConfigurationException` while building; and a value that IS configured but invalid
   (bad bool, bad pool strategy, unreachable configured Redis host at its first use, invalid
   `MESSAGING_TRANSPORT`) throws `InvalidEnvConfigurationException` — "not
   configured" and "misconfigured" are deliberately different outcomes.
@@ -342,9 +345,10 @@ HTTP-Delivery für den DomainKernel (FastRoute-Router, PSR-15-Pipeline, kanonisc
   **same** underlying provider when built via the packer (D3) — do not wire
   them from two different providers by hand unless you specifically want
   disjoint listener sets.
-- Prefer plain `PDO`; `ConnectionPool` (`jardisadapter/dbconnection`) only
-  when read replicas or health-checks are needed.
-- **Everything is lazy — building the kernel opens nothing external** (Bescheid Rolf 2026-10-15: alle Dienste lazy; `jardisadapter/dbconnection` >= 1.4): no database connection, no SQLite file, no Redis socket. The first access opens, and an error appears there, not at bootstrap. Via the packer mysql/pgsql **and sqlite** are a `ConnectionPool` (single lazy writer without readers; SQLite validates the path and applies its PRAGMAs at the first open); only the no-adapter fallback is a plain eager `PDO`. The `db` cache layer, the `redis` cache layer, a `redis` log handler and the `database` messaging transport get a provider closure (`ProvideWriterPdo`, `BuildRedisFromEnv`) that the adapters take directly (cache/logger/messaging >= 1.1: `CacheDatabase`/`CacheRedis`, `LoggerBuilder::addRedis()`, `ConnectionFactory::fromDbConnection()`) and call at their own first use — the kernel has no lazy proxy of its own for them. Errors at the first access: the `redis` cache layer throws `InvalidEnvConfigurationException`; a `redis` log handler does not throw into the caller (the `Logger` routes the failure to the error handler `BuildLoggerFromEnv` sets, which reports an `InvalidEnvConfigurationException` via `error_log()` as `[BuildLoggerFromEnv] log handler "<id>" failed: ...` and stays silent for any other handler failure; `LogRedis::getRedis()` throws it); the Redis provider keeps its first failure and rethrows the same `InvalidEnvConfigurationException` on every later access without a new `connect` (one connect attempt per kernel); an unopenable database path is the adapter's `RuntimeException` for the cache, and for the `database` messaging transport a `PublishException` (first `publish()`) / `ConsumerException` (first `consume()`) carrying the adapter's message (messaging >= 1.1.1: `ConnectionException` with the adapter error as `previous` at the connection layer). composer `conflict` blocks cache/logger < 1.1, messaging < 1.1.1, dbconnection < 1.4. A configured `dbConnection()` is therefore a `ConnectionPoolInterface` for sqlite too — `instanceof PDO` only holds in the no-adapter fallback.
+- Via the packer the database is always a lazy `ConnectionPool`
+  (`jardisadapter/dbconnection` ^1.4, required as soon as `DB_*` is configured);
+  a plain `PDO` is only for a hand-built `DomainKernel`.
+- **Everything is lazy — building the kernel opens nothing external** (Bescheid Rolf 2026-10-15: alle Dienste lazy; `jardisadapter/dbconnection` >= 1.4): no database connection, no SQLite file, no Redis socket. The first access opens, and an error appears there, not at bootstrap. Via the packer mysql/pgsql **and sqlite** are a `ConnectionPool` (single lazy writer without readers; SQLite validates the path and applies its PRAGMAs at the first open); there is no eager rest and no plain-PDO fallback (Entscheid O23 2026-10-16): a configured database (`DB_DRIVER=sqlite` or `DB_HOST`) without `jardisadapter/dbconnection` (^1.4) throws `InvalidEnvConfigurationException` while building — decided from the ENV and `class_exists`, no file, no socket. The `db` cache layer, the `redis` cache layer, a `redis` log handler and the `database` messaging transport get a provider closure (`ProvideWriterPdo`, `BuildRedisFromEnv`) that the adapters take directly (cache/logger/messaging >= 1.1: `CacheDatabase`/`CacheRedis`, `LoggerBuilder::addRedis()`, `ConnectionFactory::fromDbConnection()`) and call at their own first use — the kernel has no lazy proxy of its own for them. Errors at the first access: the `redis` cache layer throws `InvalidEnvConfigurationException`; a `redis` log handler does not throw into the caller (the `Logger` routes the failure to the error handler `BuildLoggerFromEnv` sets, which reports an `InvalidEnvConfigurationException` via `error_log()` as `[BuildLoggerFromEnv] log handler "<id>" failed: ...` and stays silent for any other handler failure; `LogRedis::getRedis()` throws it); the Redis provider keeps its first failure and rethrows the same `InvalidEnvConfigurationException` on every later access without a new `connect` (one connect attempt per kernel); an unopenable database path is the adapter's `RuntimeException` for the cache, and for the `database` messaging transport a `PublishException` (first `publish()`) / `ConsumerException` (first `consume()`) carrying the adapter's message (messaging >= 1.1.1: `ConnectionException` with the adapter error as `previous` at the connection layer). composer `conflict` blocks cache/logger < 1.1, messaging < 1.1.1, dbconnection < 1.4. A configured `dbConnection()` is therefore a `ConnectionPoolInterface` for sqlite too — `instanceof PDO` only holds for a `PDO` you inject into a hand-built `DomainKernel`.
 - **Bool-shaped ENV values go through `NormalizeEnvBool`, never a raw `===
   'true'` string compare** — the packer already applies it to every boolean
   Handler key; an unparsable value throws instead of degrading.
@@ -383,7 +387,8 @@ opaque refresh token), token issuer/redeemer, password hasher.
   base64 / not 32 bytes, or set without a configured database, throws
   `InvalidEnvConfigurationException` naming `AUTH_TOKEN_KEY`.
 - **Store:** `DbTokenStore` on the SAME connection as `dbConnection()` — a pool
-  contributes its writer, a bare PDO (sqlite) is wrapped via
+  contributes its writer (via the packer SQLite is a pool too); a bare PDO —
+  only in a hand-built `DomainKernel` — is wrapped via
   `jardisadapter/dbconnection` `ConnectionFactory::fromPdo(manageLifecycle: false)`
   (the bridge the messaging transport uses too). The token table DDL ships with
   the auth package (`resources/sql/<driver>.sql`), applied once per project.
