@@ -3,7 +3,7 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — all services lazy (Bescheid Rolf 2026-10-15)
+## [2.7.0] — 2026-10-16 — all services lazy (Bescheid Rolf 2026-10-15)
 
 Building the kernel wires; it no longer opens a database connection, a SQLite
 file or a Redis socket. The first access opens, an error appears there.
