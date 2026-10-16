@@ -20,8 +20,10 @@ use RuntimeException;
  * service — fails fast (DNS lookup failure), no Docker dependency (Plan P2 AK).
  *
  * R1 (G5 rule 3): once a driver is configured (db_driver=sqlite or db_host
- * set), a connection failure throws InvalidEnvConfigurationException instead
- * of degrading to null with a bare error_log — see BEFUNDE.md §1e.
+ * set), a config error throws InvalidEnvConfigurationException instead of
+ * degrading to null with a bare error_log — see BEFUNDE.md §1e. Entscheid O23
+ * 2026-10-16: a configured database without the adapter throws as well; there
+ * is no plain-PDO fallback.
  */
 final class BuildConnectionFromEnvTest extends TestCase
 {
@@ -156,12 +158,13 @@ final class BuildConnectionFromEnvTest extends TestCase
         self::assertInstanceOf(ConnectionPoolInterface::class, $connection);
     }
 
-    public function testInvalidPoolStrategyEnvIsRethrownBeforeAnyPdoFallback(): void
+    public function testInvalidPoolStrategyEnvIsPassedOnAsInvalidEnvConfiguration(): void
     {
         // R1 Senior-PHP blocker: the adapter-side InvalidArgumentException
         // from an invalid DB_POOL_LOAD_BALANCING_STRATEGY is wrapped as
-        // InvalidEnvConfigurationException and rethrown immediately — it
-        // must never disappear into the plain-PDO fallback.
+        // InvalidEnvConfigurationException and reaches the caller.
+        // Entscheid O23 2026-10-16: there is no PDO fallback any more that
+        // could swallow it — the pool build no longer catches Throwable.
         $this->expectException(InvalidEnvConfigurationException::class);
 
         (new BuildConnectionFromEnv())($this->envFrom([
@@ -169,6 +172,55 @@ final class BuildConnectionFromEnvTest extends TestCase
             'db_reader1_host' => 'nonexistent_reader_host_that_does_not_exist',
             'db_pool_load_balancing_strategy' => 'no-such-strategy',
         ]));
+    }
+
+    // -- Entscheid O23 2026-10-16: no adapter, no fallback -------------------
+
+    public function testSqliteConfiguredWithoutAdapterThrowsAtBuildAndCreatesNoFile(): void
+    {
+        // Entscheid O23 2026-10-16: the plain-PDO fallback is gone. A configured
+        // database without jardisadapter/dbconnection is a config error at build
+        // time, decided without I/O — the sqlite file must not appear.
+        $path = sys_get_temp_dir() . '/kernel-noadapter-' . uniqid() . '.sqlite';
+
+        try {
+            try {
+                (new BuildConnectionFromEnv(static fn (): bool => false))($this->envFrom([
+                    'db_driver' => 'sqlite',
+                    'db_path' => $path,
+                ]));
+                self::fail('Expected InvalidEnvConfigurationException');
+            } catch (InvalidEnvConfigurationException $e) {
+                self::assertStringContainsString('jardisadapter/dbconnection (^1.4)', $e->getMessage());
+                self::assertStringContainsString('not installed', $e->getMessage());
+            }
+
+            self::assertFileDoesNotExist($path);
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testHostConfiguredWithoutAdapterThrowsAtBuildWithoutSocket(): void
+    {
+        // Entscheid O23 2026-10-16: an unresolvable host would take a DNS lookup
+        // and a failing connect if anything opened — the exception is thrown
+        // from the ENV alone, naming the missing package.
+        $this->expectException(InvalidEnvConfigurationException::class);
+        $this->expectExceptionMessage('jardisadapter/dbconnection (^1.4)');
+
+        (new BuildConnectionFromEnv(static fn (): bool => false))($this->envFrom([
+            'db_driver' => 'pgsql',
+            'db_host' => 'nonexistent_host_that_does_not_exist',
+        ]));
+    }
+
+    public function testNoDatabaseConfigurationWithoutAdapterStaysNull(): void
+    {
+        // Entscheid O23 2026-10-16: "not configured" stays null — also (and
+        // especially) when the adapter is not installed.
+        self::assertNull((new BuildConnectionFromEnv(static fn (): bool => false))($this->envFrom([])));
+        self::assertNull((new BuildConnectionFromEnv(static fn (): bool => false))($this->envFrom(['db_host' => false])));
     }
 
     public function testConnectionPoolInterfaceIsTheDocumentedReturnType(): void
