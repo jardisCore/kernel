@@ -35,11 +35,13 @@ use PDOException;
  *
  * G5 error rules (R1.3): no `db_driver`/`db_host` at all means the database
  * is not configured — `null` (unchanged). Once a driver is configured
- * (`db_driver=sqlite` or `db_host` set), a sqlite open failure or an
- * invalid `DB_POOL_*` value throws {@see InvalidEnvConfigurationException}
- * instead of degrading to `null` with a bare `error_log`. A mysql/pgsql
- * connection error on the lazy pool path is thrown at first access (by the
- * adapter), not here; on the eager no-adapter PDO path it is thrown here.
+ * (`db_driver=sqlite` or `db_host` set), an invalid `DB_POOL_*` value
+ * throws {@see InvalidEnvConfigurationException} instead of degrading to
+ * `null` with a bare `error_log`, and so does a sqlite open failure in the
+ * no-adapter fallback (eager `new PDO`, thrown while building). With the
+ * adapter a sqlite path is validated and opened at first access like a
+ * mysql/pgsql connection error: the adapter throws there, not here; on the
+ * eager no-adapter PDO path a mysql/pgsql error is thrown here as well.
  * The invalid-pool-strategy case is rethrown immediately (see `buildPool`),
  * before the plain-PDO fallback is attempted — a config error must never be swallowed by the fallback (Senior-PHP
  * blocker).

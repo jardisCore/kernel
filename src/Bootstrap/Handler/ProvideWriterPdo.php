@@ -28,7 +28,6 @@ final class ProvideWriterPdo
 
         return (new MemoizeProvider())(
             static fn (): PDO => (new ExtractPdoFromConnection())($connection)
-                ?? throw new \LogicException('A configured connection always yields a PDO.')
         );
     }
 }

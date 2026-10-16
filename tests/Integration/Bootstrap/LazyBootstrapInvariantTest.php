@@ -7,12 +7,10 @@ namespace JardisCore\Kernel\Tests\Integration\Bootstrap;
 use JardisAdapter\Logger\Handler\LogRedis;
 use JardisAdapter\Logger\Handler\LogSyslog;
 use JardisAdapter\Logger\Logger;
-use JardisAdapter\Messaging\Factory\ConnectionFactory;
-use JardisAdapter\Messaging\Factory\PublisherFactory;
-use JardisAdapter\Messaging\MessagePublisher;
-use JardisAdapter\Messaging\MessagingService;
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
+use JardisCore\Kernel\Tests\Support\CapturesErrorLog;
+use JardisSupport\Contract\Messaging\Exception\ConsumerException;
 use JardisSupport\Contract\Messaging\Exception\PublishException;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use JardisSupport\Contract\Messaging\MessageHandlerInterface;
@@ -27,28 +25,32 @@ use RuntimeException;
  *   No bootstrap path opens a connection or a file. The first functional access
  *   opens it, and an error appears THERE — not while the kernel is built.
  *
- * Worst case on purpose, every way at once: SQLite file that does not exist
- * yet, an unreachable Redis host, `CACHE_LAYERS=db,redis`,
- * `MESSAGING_TRANSPORT=database`, `LOG_HANDLERS=redis,syslog`, a configured
- * mailer and the auth services. The resources are handed to the adapters as
- * providers (`CacheDatabase`/`CacheRedis`, `LoggerBuilder::addRedis()`,
+ * Paths covered: a SQLite file that does not exist yet (cache `db` layer and
+ * `database` messaging transport, publish and consume), an unreachable Redis
+ * host (cache `redis` layer, `redis` log handler), and one kernel with every
+ * service configured at once (Redis in cache and logger, syslog, mailer, auth).
+ * The resources are handed to the adapters as providers
+ * (`CacheDatabase`/`CacheRedis`, `LoggerBuilder::addRedis()`,
  * `ConnectionFactory::fromDbConnection()` — cache/logger/messaging >= 1.1);
  * the kernel holds no lazy mechanism of its own for them.
  *
  * Exception type at the first access, per service:
  *  - database path unopenable: cache -> RuntimeException (from dbconnection,
- *    unchanged); messaging -> RuntimeException as well, because the provider
- *    does not throw a PDOException. A provider throwing a PDOException would
- *    arrive wrapped by the package as PublishException(previous: PDOException)
- *    (DatabasePublisher::publish) — pinned in
- *    testMessagingWrapsAProviderPdoExceptionInPublishException.
+ *    unchanged); messaging `publish()` -> PublishException and `consume()` ->
+ *    ConsumerException, both carrying the adapter's message (messaging >= 1.1.1
+ *    raises a ConnectionException with the adapter error as `previous` at the
+ *    connection layer; the message publisher/consumer folds it into the
+ *    layer-failed exception).
  *  - Redis unreachable: cache -> InvalidEnvConfigurationException (unchanged
  *    from the former bootstrap-time failure); logger -> the handler does not
  *    swallow it ({@see LogRedis::getRedis()}), `Logger::log()` hands it to the
- *    logger's error handler, so logging itself never throws into the caller.
+ *    logger's error handler, which the kernel sets: the failure is reported
+ *    via `error_log()`, logging itself never throws into the caller.
  */
 final class LazyBootstrapInvariantTest extends TestCase
 {
+    use CapturesErrorLog;
+
     private string $dbFile;
 
     protected function setUp(): void
@@ -164,8 +166,8 @@ final class LazyBootstrapInvariantTest extends TestCase
         try {
             $messaging->publish('t', 'x');
             self::fail('messaging access must throw for an unopenable database');
-        } catch (RuntimeException) {
-            self::addToAssertionCount(1);
+        } catch (PublishException $e) {
+            self::assertStringContainsString('SQLite database directory is not writable', $e->getMessage());
         }
     }
 
@@ -178,7 +180,8 @@ final class LazyBootstrapInvariantTest extends TestCase
         $messaging = $kernel->messaging();
         self::assertNotNull($messaging);
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(ConsumerException::class);
+        $this->expectExceptionMessage('SQLite database directory is not writable');
 
         $messaging->consume('t', new class implements MessageHandlerInterface {
             public function handle(string|array $message, array $metadata): bool
@@ -238,46 +241,20 @@ final class LazyBootstrapInvariantTest extends TestCase
         self::assertCount(1, $logger->getHandlersByClass(LogSyslog::class));
 
         // The first write must not throw into the caller although Redis is
-        // unreachable (the Logger routes handler failures to its error handler).
-        $logger->error('first write');
+        // unreachable (the Logger routes handler failures to its error handler),
+        // and the failure must not stay invisible: the kernel's error handler
+        // reports it via error_log() (O20).
+        $reported = $this->captureErrorLog(static fn () => $logger->error('first write'));
+        self::assertStringContainsString('[BuildLoggerFromEnv] log handler "', $reported);
+        self::assertStringContainsString(
+            'Redis connection to host "nonexistent_host_that_does_not_exist" failed',
+            $reported,
+        );
 
         // The handler itself did not swallow the provider's exception.
         $this->expectException(InvalidEnvConfigurationException::class);
 
         $logger->getHandlersByClass(LogRedis::class)[array_key_first($logger->getHandlersByClass(LogRedis::class))]
             ->getRedis();
-    }
-
-    public function testMessagingWrapsAProviderPdoExceptionInPublishException(): void
-    {
-        // The package's own shell, not a kernel behaviour: a provider failing with
-        // a PDOException is wrapped by DatabasePublisher::publish() as
-        // PublishException(previous: PDOException) ...
-        $connection = (new ConnectionFactory())->fromDbConnection(
-            static fn (): PDO => throw new \PDOException('provider failed'),
-        );
-        $databasePublisher = (new PublisherFactory())->database($connection);
-
-        try {
-            $databasePublisher->publish('t', 'x');
-            self::fail('publish must throw');
-        } catch (PublishException $e) {
-            self::assertInstanceOf(\PDOException::class, $e->getPrevious());
-        }
-
-        // ... and MessagePublisher (the layer MessagingService uses) wraps it a
-        // second time as PublishException('All publisher layers failed. Errors: ...')
-        // carrying the message of the first wrap, but not the `previous` chain.
-        $messaging = new MessagingService(
-            publisherFactory: static fn () => new MessagePublisher($databasePublisher),
-            consumerFactory: static fn () => throw new \LogicException('not used'),
-        );
-
-        try {
-            $messaging->publish('t', 'x');
-            self::fail('publish must throw');
-        } catch (PublishException $e) {
-            self::assertStringContainsString('Failed to publish message to database: provider failed', $e->getMessage());
-        }
     }
 }

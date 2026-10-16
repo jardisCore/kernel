@@ -34,22 +34,40 @@ file or a Redis socket. The first access opens, an error appears there.
   (logging never throws into the caller).
 - The `database` messaging transport builds ONE `fromDbConnection()` connection
   object at wiring time (no I/O); the PDO is resolved at the first
-  publish/consume. A provider `PDOException` is wrapped by the package
-  (`DatabasePublisher` -> `PublishException`, `MessagePublisher` ->
-  `PublishException('All publisher layers failed...')`).
+  publish/consume. A failing provider (e.g. an unopenable SQLite path) surfaces
+  there: `jardisadapter/messaging` `^1.1.1` raises a `ConnectionException` with
+  the adapter error as `previous` at the connection layer, and
+  `messaging()->publish()` / `consume()` report it as
+  `PublishException('All publisher layers failed. Errors: ...')` /
+  `ConsumerException('All consumer layers failed. Errors: ...')` carrying the
+  adapter's message.
+- `BuildRedisFromEnv` returns `?Closure(): Redis` instead of `?Redis` (handler
+  internals, not part of the `DomainKernel` surface). The provider memoizes a
+  successful client AND a failed first attempt: the same
+  `InvalidEnvConfigurationException` is thrown again on every later access
+  without a new `connect` — an unreachable host costs one connect attempt per
+  kernel, not one per cache access or log line.
+- `BuildLoggerFromEnv` sets a logger error handler that reports one failure
+  class: an `InvalidEnvConfigurationException` from a `redis` log handler goes
+  to `error_log()` (`[BuildLoggerFromEnv] log handler "<id>" failed: ...`), so a
+  misconfigured log destination is not invisible. Every other handler failure
+  stays silent (Logger semantics); logging never throws into the caller.
 
 ### Removed
 
 - `Handler\IsWriterPdoRequired` — obsolete: providing the PDO opens nothing.
-- `Bootstrap\LazyCacheLayer` (PSR-16 proxy) and `Handler\ProvideRedisFromEnv` —
-  superseded by the adapters' own provider support (cache/logger/messaging
-  `^1.1`); the kernel keeps no lazy mechanism of its own for them.
 
 ### Dependencies
 
 - `require-dev` and `suggest`: `jardisadapter/cache` `^1.1`,
-  `jardisadapter/logger` `^1.1`, `jardisadapter/messaging` `^1.1`,
-  `jardisadapter/dbconnection` `^1.4`.
+  `jardisadapter/logger` `^1.1`, `jardisadapter/messaging` `^1.1.1`,
+  `jardisadapter/dbconnection` `^1.4.1`.
+- `conflict`: `jardisadapter/cache` `<1.1`, `jardisadapter/logger` `<1.1`,
+  `jardisadapter/messaging` `<1.1.1`, `jardisadapter/dbconnection` `<1.4`. The
+  adapters stay optional (`suggest`), but an installed older minor would
+  receive a provider `Closure` it cannot take; the resulting `TypeError` was
+  swallowed by the handlers' `catch (\Throwable)` and the service silently
+  dropped.
 
 ## [2.6.0] — 2026-10-15 — `auth()` accessor, built from `AUTH_TOKEN_KEY`
 

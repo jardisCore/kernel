@@ -28,10 +28,18 @@ use RedisException;
  * provider throws {@see InvalidEnvConfigurationException} at the first
  * consumer access instead of silently degrading to `null`.
  *
- * The provider is memoized (on success only — a failed attempt is retried):
- * the adapters memoize their own result but not across each other, so without
- * it cache and logger would open two connections instead of one (D4 fan-out,
- * {@see MemoizeProvider}).
+ * The provider is memoized on success: the adapters memoize their own result
+ * but not across each other, so without it cache and logger would open two
+ * connections instead of one (D4 fan-out, {@see MemoizeProvider}).
+ *
+ * A failure is memoized as well, for the lifetime of this provider (O22):
+ * the first attempt's {@see InvalidEnvConfigurationException} is kept and
+ * thrown again on every later call, without a new `connect`. Otherwise every
+ * cache access and every log line would pay the socket timeout again against
+ * an unreachable host (`connect` has no timeout key) — one connect attempt
+ * per kernel, as the former bootstrap-time failure was one abort per boot.
+ * This lives here and not in the generic {@see MemoizeProvider}, which stays
+ * success-only; the adapters' own retry semantics are unchanged.
  */
 final class BuildRedisFromEnv
 {
@@ -46,8 +54,15 @@ final class BuildRedisFromEnv
             return null;
         }
 
+        /** @var InvalidEnvConfigurationException|null $failure */
+        $failure = null;
+
         return (new MemoizeProvider())(
-            static function () use ($env, $prefix, $host): Redis {
+            static function () use ($env, $prefix, $host, &$failure): Redis {
+                if ($failure !== null) {
+                    throw $failure;
+                }
+
                 try {
                     $redis = new Redis();
                     $redis->connect(
@@ -67,10 +82,12 @@ final class BuildRedisFromEnv
 
                     return $redis;
                 } catch (RedisException $e) {
-                    throw new InvalidEnvConfigurationException(
+                    $failure = new InvalidEnvConfigurationException(
                         sprintf('Redis connection to host "%s" failed: %s', (string) $host, $e->getMessage()),
                         previous: $e,
                     );
+
+                    throw $failure;
                 }
             }
         );

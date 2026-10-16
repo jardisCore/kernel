@@ -9,6 +9,7 @@ use JardisAdapter\Logger\Handler\LogRedis;
 use JardisAdapter\Logger\Logger;
 use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
+use JardisCore\Kernel\Tests\Support\CapturesErrorLog;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
@@ -17,6 +18,8 @@ use Psr\Log\LoggerInterface;
  */
 final class BuildLoggerFromEnvTest extends TestCase
 {
+    use CapturesErrorLog;
+
     public function testNoHandlersReturnsNull(): void
     {
         $logger = (new BuildLoggerFromEnv())($this->envFrom([]));
@@ -128,9 +131,10 @@ final class BuildLoggerFromEnvTest extends TestCase
         );
         self::assertInstanceOf(Logger::class, $logger);
 
-        // Logger::log() routes a handler failure to the (here unset) error
-        // handler — logging never throws into the application.
-        $logger->error('first write');
+        // Logger::log() routes a handler failure to the error handler the
+        // builder set — logging never throws into the application.
+        $reported = $this->captureErrorLog(static fn () => $logger->error('first write'));
+        self::assertStringContainsString('Redis connection failed', $reported);
         self::assertSame(1, $calls);
 
         // The handler itself does not swallow the provider's exception.
@@ -139,6 +143,45 @@ final class BuildLoggerFromEnvTest extends TestCase
         $this->expectException(InvalidEnvConfigurationException::class);
 
         reset($handlers)->getRedis();
+    }
+
+    public function testKernelProviderFailureAtFirstLogIsReportedToErrorLogWithoutThrowing(): void
+    {
+        // O20: a configured Redis that cannot be reached must not stay invisible.
+        $logger = (new BuildLoggerFromEnv())(
+            $this->envFrom(['log_handlers' => 'redis']),
+            static function (): \Redis {
+                throw new InvalidEnvConfigurationException('Redis connection to host "cache.invalid" failed: refused');
+            },
+        );
+        self::assertInstanceOf(Logger::class, $logger);
+        $handlerIds = array_keys($logger->getHandlersByClass(LogRedis::class));
+
+        $output = $this->captureErrorLog(static fn () => $logger->error('one line'));
+
+        self::assertStringContainsString(
+            sprintf(
+                '[BuildLoggerFromEnv] log handler "%s" failed: Redis connection to host "cache.invalid" failed: refused',
+                $handlerIds[0],
+            ),
+            $output,
+        );
+    }
+
+    public function testOtherHandlerFailuresStaySilent(): void
+    {
+        // Logger semantics: only the kernel's own configuration failure is reported.
+        $logger = (new BuildLoggerFromEnv())(
+            $this->envFrom(['log_handlers' => 'redis']),
+            static function (): \Redis {
+                throw new \RuntimeException('some other failure');
+            },
+        );
+        self::assertInstanceOf(Logger::class, $logger);
+
+        $output = $this->captureErrorLog(static fn () => $logger->error('one line'));
+
+        self::assertSame('', $output);
     }
 
     public function testSlackHandlerIsSkippedWhenUrlMissing(): void

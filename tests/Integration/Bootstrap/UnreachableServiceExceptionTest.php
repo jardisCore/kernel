@@ -8,6 +8,7 @@ use JardisAdapter\Logger\Handler\LogRedis;
 use JardisAdapter\Logger\Logger;
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
+use JardisCore\Kernel\Tests\Support\CapturesErrorLog;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -24,6 +25,8 @@ use RuntimeException;
  */
 final class UnreachableServiceExceptionTest extends TestCase
 {
+    use CapturesErrorLog;
+
     private function fixturePath(string $name): string
     {
         return __DIR__ . '/../../Fixtures/ProjectRoot/' . $name;
@@ -99,7 +102,8 @@ final class UnreachableServiceExceptionTest extends TestCase
         $logger = $kernel->logger();
         self::assertInstanceOf(Logger::class, $logger);
 
-        $logger->error('first write');
+        $reported = $this->captureErrorLog(static fn () => $logger->error('first write'));
+        self::assertStringContainsString('[BuildLoggerFromEnv] log handler "', $reported);
 
         $handlers = $logger->getHandlersByClass(LogRedis::class);
         self::assertCount(1, $handlers);

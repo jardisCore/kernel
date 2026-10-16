@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace JardisCore\Kernel\Tests\Unit\Bootstrap;
 
+use JardisAdapter\Cache\Adapter\CacheRedis;
+use JardisAdapter\Cache\Cache;
+use JardisAdapter\Logger\Handler\LogRedis;
+use JardisAdapter\Logger\Logger;
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisCore\Kernel\Tests\Support\EnvIsolation;
@@ -138,5 +142,27 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         $this->expectException(InvalidEnvConfigurationException::class);
 
         $cache->get('anything');
+    }
+
+    public function testCacheAndLoggerShareOneRedisClientFromOneProvider(): void
+    {
+        // D4 fan-out: the packer builds ONE Redis provider and hands it to both
+        // consumers. Red if the packer called buildRedis twice — each provider
+        // would open its own client, and the two objects below would differ.
+        $kernel = (new BuildDomainKernelFromEnv())(
+            sys_get_temp_dir(),
+            "REDIS_HOST=kernel-test-redis\nREDIS_PORT=6379\nCACHE_LAYERS=redis\nLOG_HANDLERS=redis\n",
+        );
+        $cache = $kernel->cache();
+        $logger = $kernel->logger();
+        self::assertInstanceOf(Cache::class, $cache);
+        self::assertInstanceOf(Logger::class, $logger);
+
+        $cacheRedis = $cache->getLayers()[0];
+        self::assertInstanceOf(CacheRedis::class, $cacheRedis);
+        $logHandlers = $logger->getHandlersByClass(LogRedis::class);
+        self::assertCount(1, $logHandlers);
+
+        self::assertSame($cacheRedis->getConnection(), reset($logHandlers)->getRedis());
     }
 }

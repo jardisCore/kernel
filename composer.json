@@ -25,6 +25,12 @@
         "psr/event-dispatcher": "^1.0",
         "psr/http-client": "^1.0"
     },
+    "conflict": {
+        "jardisadapter/cache": "<1.1",
+        "jardisadapter/logger": "<1.1",
+        "jardisadapter/messaging": "<1.1.1",
+        "jardisadapter/dbconnection": "<1.4"
+    },
     "suggest": {
         "jardisadapter/cache": "For multi-layer caching (Memory, Redis, Database) via the Bootstrap-Packer; requires ^1.1 (lazy Redis/PDO providers)",
         "jardisadapter/dbconnection": "For lazy ConnectionPool (connection opens on first access) with read/write splitting, health checks and load balancing; requires ^1.4",
@@ -33,7 +39,7 @@
         "jardisadapter/http": "For PSR-18 HTTP client with handler pipeline via the Bootstrap-Packer",
         "jardisadapter/logger": "For log handlers (File, Console, Redis, Database, etc.) via the Bootstrap-Packer; requires ^1.1 (lazy Redis provider)",
         "jardisadapter/mailer": "For SMTP mailer with STARTTLS, AUTH, HTML/text, attachments via the Bootstrap-Packer",
-        "jardisadapter/messaging": "For Kafka/RabbitMQ/Redis/Database messaging via the Bootstrap-Packer; requires ^1.1 (fromDbConnection provider)",
+        "jardisadapter/messaging": "For Kafka/RabbitMQ/Redis/Database messaging via the Bootstrap-Packer; requires ^1.1.1 (fromDbConnection provider)",
         "jardissupport/auth": "For the auth() accessor (signed access tokens, SQL token store) via the Bootstrap-Packer; needs AUTH_TOKEN_KEY and jardisadapter/dbconnection ^1.4",
         "jardissupport/secret": "For decrypting secret(...) ENV values via the Bootstrap-Packer; the key comes from the APP_SECRET_KEY process environment variable or from <projectRoot>/support/secret.key",
         "ext-redis": "For Redis-based caching, logging and messaging via the Bootstrap-Packer",
@@ -46,13 +52,13 @@
         "squizlabs/php_codesniffer": "3.13.6",
         "jardis/dev-skills": "^1.0",
         "jardisadapter/cache": "^1.1",
-        "jardisadapter/dbconnection": "^1.4",
+        "jardisadapter/dbconnection": "^1.4.1",
         "jardisadapter/eventdispatcher": "^1.0",
         "jardisadapter/filesystem": "^1.0",
         "jardisadapter/http": "^1.0",
         "jardisadapter/logger": "^1.1",
         "jardisadapter/mailer": "^1.0",
-        "jardisadapter/messaging": "^1.1",
+        "jardisadapter/messaging": "^1.1.1",
         "jardissupport/auth": "^1.6",
         "jardissupport/secret": "^1.1",
         "ext-redis": "*",

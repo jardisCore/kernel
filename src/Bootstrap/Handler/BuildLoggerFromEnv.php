@@ -7,6 +7,7 @@ namespace JardisCore\Kernel\Bootstrap\Handler;
 use Closure;
 use JardisAdapter\Logger\LoggerBuilder;
 use JardisCore\Kernel\Bootstrap\Data\LogHandler;
+use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use Psr\Log\LoggerInterface;
 use Redis;
 
@@ -24,8 +25,14 @@ use Redis;
  * `$redis` may be a provider Closure ({@see BuildRedisFromEnv}): `addRedis()`
  * (jardisadapter/logger >= 1.1) takes it as is and calls it at the first log
  * write, so a listed `redis` handler opens nothing while the logger is built.
- * A provider failure at that moment reaches the logger's `setErrorHandler()`
- * (the handler does not swallow it, the `Logger` reports it there).
+ * A provider failure at that moment reaches the logger's error handler (the
+ * handler does not swallow it, the `Logger` reports it there). The error
+ * handler set here reports exactly one class of failure: the kernel's own
+ * {@see InvalidEnvConfigurationException} (a configured Redis that cannot be
+ * reached) goes to `error_log()` as `[BuildLoggerFromEnv] log handler "<id>"
+ * failed: <message>` — otherwise a misconfigured log destination would stay
+ * invisible. Every other handler failure stays silent: logging must not
+ * throw into, nor make noise for, the caller (Logger semantics).
  */
 final class BuildLoggerFromEnv
 {
@@ -39,6 +46,17 @@ final class BuildLoggerFromEnv
         $context = (string) ($env('log_context') ?? 'app');
         $defaultLevel = (string) ($env('log_level') ?? 'INFO');
         $builder = new LoggerBuilder($context);
+        $builder->setErrorHandler(
+            static function (\Throwable $e, string $handlerId) {
+                if ($e instanceof InvalidEnvConfigurationException) {
+                    error_log(sprintf(
+                        '[BuildLoggerFromEnv] log handler "%s" failed: %s',
+                        $handlerId,
+                        $e->getMessage(),
+                    ));
+                }
+            }
+        );
 
         $entries = array_map('trim', explode(',', (string) $env('log_handlers')));
 
@@ -50,7 +68,6 @@ final class BuildLoggerFromEnv
                 continue;
             }
 
-
             try {
                 match ($type) {
                     LogHandler::File => $builder->addFile(
@@ -61,9 +78,7 @@ final class BuildLoggerFromEnv
                     LogHandler::ErrorLog => $builder->addErrorLog($level),
                     LogHandler::Syslog => $builder->addSyslog($level),
                     LogHandler::BrowserConsole => $builder->addBrowserConsole($level),
-                    LogHandler::Redis => $redis !== null
-                        ? $builder->addRedis($level, $redis)
-                        : null,
+                    LogHandler::Redis => $redis !== null ? $builder->addRedis($level, $redis) : null,
                     LogHandler::Slack => $this->addUrlHandler($env, 'log_slack_url', $builder, $type, $level),
                     LogHandler::Teams => $this->addUrlHandler($env, 'log_teams_url', $builder, $type, $level),
                     LogHandler::Loki => $this->addUrlHandler($env, 'log_loki_url', $builder, $type, $level),
