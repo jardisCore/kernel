@@ -15,13 +15,12 @@ use JardisCore\Kernel\Bootstrap\Handler\BuildHttpClientFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMailerFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\BuildMessagingFromEnv;
-use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\AssertNoUnresolvedSecret;
 use JardisCore\Kernel\Bootstrap\Handler\BuildSecretHandler;
-use JardisCore\Kernel\Bootstrap\Handler\ExtractPdoFromConnection;
-use JardisCore\Kernel\Bootstrap\Handler\IsWriterPdoRequired;
 use JardisCore\Kernel\Bootstrap\Handler\LoadEnvForKernel;
 use JardisCore\Kernel\Bootstrap\Handler\NormalizeEnvKeys;
+use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
+use JardisCore\Kernel\Bootstrap\Handler\ProvideWriterPdo;
 use JardisCore\Kernel\Bootstrap\Handler\ReadEnvValue;
 use JardisCore\Kernel\Bootstrap\Handler\ResolveSecretKeyProvider;
 use JardisCore\Kernel\DomainKernel;
@@ -61,10 +60,19 @@ use JardisCore\Kernel\DomainKernel;
  * Redis fan-out (D4): one Redis connection, built once, feeds both the cache
  * (`redis` layer) and the logger (`redis` handler) — named sub-closures
  * rather than duplicated wiring. The database connection fans out the same
- * way: its writer PDO ({@see ExtractPdoFromConnection}, extracted once, and
- * only when one of them is configured — see {@see IsWriterPdoRequired}) feeds
- * both the optional `db` cache layer and the `database` messaging transport
- * — one stack, one database, never a second DSN to keep in sync.
+ * way: its writer PDO feeds both the optional `db` cache layer and the
+ * `database` messaging transport — one stack, one database, never a second
+ * DSN to keep in sync.
+ *
+ * Everything is lazy (Bescheid Rolf 2026-10-15: all services lazy): building
+ * the kernel wires, it opens nothing external — no database connection, no
+ * SQLite file, no Redis socket. The shared Redis client and writer PDO travel
+ * as memoizing provider closures ({@see BuildRedisFromEnv},
+ * {@see ProvideWriterPdo}) that the adapters take as `Closure(): Redis` /
+ * `Closure(): PDO` (`CacheRedis`/`CacheDatabase`, `LoggerBuilder::addRedis()`,
+ * `ConnectionFactory::fromDbConnection()`) and call at their own first use.
+ * The first access opens the resource, and an error appears there, not at
+ * bootstrap.
  *
  * Auth (`AUTH_TOKEN_KEY` + `jardissupport/auth`, see {@see BuildAuthServicesFromEnv}):
  * the token store runs on the same `$connection`, built lazily on first use so a
@@ -103,8 +111,7 @@ final class BuildDomainKernelFromEnv
     private readonly Closure $buildSecretHandler;
     private readonly Closure $assertNoUnresolvedSecret;
     private readonly Closure $buildConnection;
-    private readonly Closure $extractPdo;
-    private readonly Closure $isWriterPdoRequired;
+    private readonly Closure $provideWriterPdo;
     private readonly Closure $buildRedis;
     private readonly Closure $buildCache;
     private readonly Closure $buildLogger;
@@ -125,8 +132,7 @@ final class BuildDomainKernelFromEnv
         $this->buildSecretHandler = (new BuildSecretHandler())->__invoke(...);
         $this->assertNoUnresolvedSecret = (new AssertNoUnresolvedSecret())->__invoke(...);
         $this->buildConnection = (new BuildConnectionFromEnv())->__invoke(...);
-        $this->extractPdo = (new ExtractPdoFromConnection())->__invoke(...);
-        $this->isWriterPdoRequired = (new IsWriterPdoRequired())->__invoke(...);
+        $this->provideWriterPdo = (new ProvideWriterPdo())->__invoke(...);
         $this->buildRedis = (new BuildRedisFromEnv())->__invoke(...);
         $this->buildCache = (new BuildCacheFromEnv())->__invoke(...);
         $this->buildLogger = (new BuildLoggerFromEnv())->__invoke(...);
@@ -156,13 +162,12 @@ final class BuildDomainKernelFromEnv
         $envGet = static fn (string $key): mixed => $readEnvValue($env, $key);
 
         $connection = ($this->buildConnection)($envGet);
-        // One extraction, two consumers: the optional `db` cache layer and
-        // the database messaging transport both run on the writer PDO the
+        // One provider, two consumers: the optional `db` cache layer and the
+        // database messaging transport both run on the writer PDO the
         // connection above already carries (D4 fan-out, same idea as Redis).
-        // Extracting it opens the (lazy) connection, so it only happens when
-        // one of those consumers is configured — otherwise the connection
-        // stays closed until the domain's first database access.
-        $writerPdo = ($this->isWriterPdoRequired)($envGet) ? ($this->extractPdo)($connection) : null;
+        // Providers, not objects: obtaining the PDO opens the connection, and
+        // that must not happen while the kernel is built.
+        $writerPdo = ($this->provideWriterPdo)($connection);
         $redis = ($this->buildRedis)($envGet);
         $listenerProvider = ($this->buildEventListenerProvider)();
 

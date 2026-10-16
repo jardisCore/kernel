@@ -10,14 +10,12 @@ use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tests for BuildRedisFromEnv — ported 1:1 from foundation's RedisHandler.
+ * Tests for BuildRedisFromEnv — a provider `Closure(): Redis`, not a client.
  *
- * This repo's docker-compose (support/docker-compose.yml) has no Redis
- * service — a real connect/auth/select round-trip is out of scope for this
- * package's QA (Plan P2 AK: "keine Docker-Pflicht"). Covered here: the
- * branches reachable without live infrastructure (no host configured -> null;
- * unreachable host -> InvalidEnvConfigurationException, R1 G5 rule 3) plus
- * the prefix parameter.
+ * Covered: no host configured -> null; configured host -> provider without
+ * any I/O; unreachable host -> InvalidEnvConfigurationException when the
+ * provider is called (R1 G5 rule 3); one shared client against the
+ * `kernel-test-redis` service; the prefix parameter.
  *
  * Added beyond that subset: the missing-`ext-redis` branch, which needs no
  * Redis service either — it forks a PHP without extensions instead (see the
@@ -32,16 +30,31 @@ final class BuildRedisFromEnvTest extends TestCase
         self::assertNull($redis);
     }
 
-    public function testUnreachableHostThrows(): void
+    public function testConfiguredHostYieldsProviderWithoutConnecting(): void
     {
-        // R1 (G5 rule 3): a configured but unreachable Redis now throws
-        // instead of silently degrading to null.
-        $this->expectException(InvalidEnvConfigurationException::class);
-
-        (new BuildRedisFromEnv())($this->envFrom([
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — reaching the assertion
+        // proves that building the provider did no I/O toward the host.
+        $provider = (new BuildRedisFromEnv())($this->envFrom([
             'redis_host' => 'nonexistent_host_that_does_not_exist',
             'redis_port' => '6379',
         ]));
+
+        self::assertInstanceOf(Closure::class, $provider);
+    }
+
+    public function testUnreachableHostThrowsOnlyWhenTheProviderIsCalled(): void
+    {
+        // R1 (G5 rule 3): a configured but unreachable Redis still throws
+        // instead of silently degrading to null — now at the first call.
+        $provider = (new BuildRedisFromEnv())($this->envFrom([
+            'redis_host' => 'nonexistent_host_that_does_not_exist',
+            'redis_port' => '6379',
+        ]));
+        self::assertNotNull($provider);
+
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        $provider();
     }
 
     public function testCustomPrefixWithNoHostReturnsNull(): void
@@ -54,13 +67,71 @@ final class BuildRedisFromEnvTest extends TestCase
     public function testCustomPrefixIsUsedForHostLookup(): void
     {
         // Only "other_host" is set — the default "redis_" prefix must NOT
-        // pick it up; passing the matching prefix must at least attempt
-        // the connection (and throw on the unreachable host).
+        // pick it up; passing the matching prefix must yield a provider that
+        // attempts the connection (and throws on the unreachable host).
+        $env = $this->envFrom(['other_host' => 'nonexistent_host_that_does_not_exist']);
+
+        self::assertNull((new BuildRedisFromEnv())($env));
+
+        $provider = (new BuildRedisFromEnv())($env, 'other_');
+        self::assertNotNull($provider);
+
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildRedisFromEnv())($this->envFrom([
-            'other_host' => 'nonexistent_host_that_does_not_exist',
-        ]), 'other_');
+        $provider();
+    }
+
+    public function testFailedConnectIsMemoizedAndNotRetriedOnLaterAccesses(): void
+    {
+        // O22: one connect attempt per provider. Counted against a real listener
+        // (a child PHP that accepts a TCP connection, counts it and closes it
+        // again at once, so `auth` fails). Timing would prove nothing here, and
+        // the counter needs no seam in production code.
+        $counterFile = sys_get_temp_dir() . '/jardis-kernel-redis-accepts-' . uniqid('', true);
+        $server = $this->startAcceptCountingServer($counterFile, $port);
+
+        try {
+            $provider = (new BuildRedisFromEnv())($this->envFrom([
+                'redis_host' => '127.0.0.1',
+                'redis_port' => $port,
+                'redis_password' => 'secret',
+            ]));
+            self::assertNotNull($provider);
+
+            try {
+                $provider();
+                self::fail('the first access must fail: the server closes the connection');
+            } catch (InvalidEnvConfigurationException $first) {
+                self::assertSame(1, $this->acceptCount($counterFile));
+            }
+
+            try {
+                $provider();
+                self::fail('the second access must fail as well');
+            } catch (InvalidEnvConfigurationException $second) {
+                self::assertSame($first, $second, 'the first attempt\'s failure is rethrown, not rebuilt');
+            }
+
+            self::assertSame(1, $this->acceptCount($counterFile), 'no second connect attempt');
+        } finally {
+            proc_terminate($server);
+            proc_close($server);
+            @unlink($counterFile);
+        }
+    }
+
+    public function testReachableRedisIsConnectedOnceAndSharedBetweenCallers(): void
+    {
+        // D4 fan-out: cache and logger call the same provider and get ONE client.
+        $provider = (new BuildRedisFromEnv())($this->envFrom([
+            'redis_host' => 'kernel-test-redis',
+            'redis_port' => 6379,
+        ]));
+        self::assertNotNull($provider);
+
+        $redis = $provider();
+
+        self::assertSame($redis, $provider());
     }
 
     /**
@@ -121,5 +192,42 @@ final class BuildRedisFromEnvTest extends TestCase
     private function envFrom(array $data): Closure
     {
         return static fn (string $key): mixed => $data[strtolower($key)] ?? null;
+    }
+
+    private function acceptCount(string $counterFile): int
+    {
+        return is_file($counterFile) ? (int) file_get_contents($counterFile) : 0;
+    }
+
+    /**
+     * Starts a child PHP listening on 127.0.0.1 (free port, returned by
+     * reference). For every accepted connection it writes the running count to
+     * `$counterFile` BEFORE closing the connection, so the count is current by
+     * the time the client sees the connection die.
+     *
+     * @return resource
+     */
+    private function startAcceptCountingServer(string $counterFile, ?int &$port)
+    {
+        $code = '$s = stream_socket_server("tcp://127.0.0.1:0");'
+            . ' fwrite(STDOUT, stream_socket_get_name($s, false) . "\n"); fflush(STDOUT);'
+            . ' $n = 0; while (true) { $c = @stream_socket_accept($s, -1); if ($c === false) { continue; }'
+            . ' file_put_contents($argv[1], (string) ++$n); fclose($c); }';
+
+        $process = proc_open(
+            [PHP_BINARY, '-n', '-r', $code, $counterFile],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+        self::assertIsResource($process);
+
+        $read = [$pipes[1]];
+        $write = $except = null;
+        self::assertSame(1, stream_select($read, $write, $except, 10), 'the listener did not report its port');
+        $address = trim((string) fgets($pipes[1]));
+        self::assertMatchesRegularExpression('/^127\.0\.0\.1:\d+$/', $address);
+        $port = (int) substr($address, strlen('127.0.0.1:'));
+
+        return $process;
     }
 }
