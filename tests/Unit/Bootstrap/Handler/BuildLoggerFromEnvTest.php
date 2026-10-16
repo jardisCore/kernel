@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace JardisCore\Kernel\Tests\Unit\Bootstrap\Handler;
 
 use Closure;
+use JardisAdapter\Logger\Handler\LogRedis;
+use JardisAdapter\Logger\Logger;
 use JardisCore\Kernel\Bootstrap\Handler\BuildLoggerFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use PHPUnit\Framework\TestCase;
@@ -94,14 +96,49 @@ final class BuildLoggerFromEnvTest extends TestCase
         self::assertSame(0, $calls);
     }
 
-    public function testRedisProviderIsCalledWhenARedisHandlerIsListedAndItsErrorIsNotSwallowed(): void
+    public function testRedisProviderIsNotCalledWhileBuildingEvenWhenARedisHandlerIsListed(): void
     {
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy — jardisadapter/logger
+        // >= 1.1 takes the provider and calls it at the first log write.
+        $calls = 0;
+
+        $logger = (new BuildLoggerFromEnv())(
+            $this->envFrom(['log_handlers' => 'redis']),
+            function () use (&$calls): \Redis {
+                $calls++;
+
+                throw new InvalidEnvConfigurationException('Redis connection failed');
+            },
+        );
+
+        self::assertInstanceOf(Logger::class, $logger);
+        self::assertSame(0, $calls);
+    }
+
+    public function testRedisProviderFailureAtFirstLogDoesNotBreakTheCallerAndIsNotSwallowedByTheHandler(): void
+    {
+        $calls = 0;
+        $logger = (new BuildLoggerFromEnv())(
+            $this->envFrom(['log_handlers' => 'redis']),
+            function () use (&$calls): \Redis {
+                $calls++;
+
+                throw new InvalidEnvConfigurationException('Redis connection failed');
+            },
+        );
+        self::assertInstanceOf(Logger::class, $logger);
+
+        // Logger::log() routes a handler failure to the (here unset) error
+        // handler — logging never throws into the application.
+        $logger->error('first write');
+        self::assertSame(1, $calls);
+
+        // The handler itself does not swallow the provider's exception.
+        $handlers = $logger->getHandlersByClass(LogRedis::class);
+        self::assertCount(1, $handlers);
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildLoggerFromEnv())(
-            $this->envFrom(['log_handlers' => 'redis']),
-            static fn (): \Redis => throw new InvalidEnvConfigurationException('Redis connection failed'),
-        );
+        reset($handlers)->getRedis();
     }
 
     public function testSlackHandlerIsSkippedWhenUrlMissing(): void

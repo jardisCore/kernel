@@ -11,7 +11,6 @@ use JardisAdapter\Cache\Adapter\CacheMemory;
 use JardisAdapter\Cache\Adapter\CacheRedis;
 use JardisAdapter\Cache\Cache;
 use JardisCore\Kernel\Bootstrap\Data\CacheLayer;
-use JardisCore\Kernel\Bootstrap\LazyCacheLayer;
 use PDO;
 use Psr\SimpleCache\CacheInterface;
 use Redis;
@@ -27,11 +26,10 @@ use Redis;
  * `BuildLoggerFromEnv`.
  *
  * Bescheid Rolf 2026-10-15: all services lazy. `$pdo` / `$redis` may be a
- * provider Closure ({@see ProvideWriterPdo}, {@see ProvideRedisFromEnv}); the
- * `db` / `redis` layer is then a {@see LazyCacheLayer} that calls the provider
- * — and so opens the database / Redis — only on the layer's first cache call,
- * never while the kernel is built. A ready PDO / Redis object is wired
- * directly, as before.
+ * provider Closure ({@see ProvideWriterPdo}, {@see BuildRedisFromEnv}); it is
+ * handed to `CacheDatabase` / `CacheRedis` (jardisadapter/cache >= 1.1), which
+ * call it — and so open the database / Redis — at their first cache access,
+ * never while the kernel is built. A ready PDO / Redis object stays valid.
  */
 final class BuildCacheFromEnv
 {
@@ -70,17 +68,11 @@ final class BuildCacheFromEnv
                 $layer = match ($type) {
                     CacheLayer::Memory => new CacheMemory($namespace),
                     CacheLayer::Apcu => new CacheApcu($namespace),
-                    CacheLayer::Redis => $redis === null ? null : $this->lazyOrDirect(
-                        $redis,
-                        static fn (Redis $client): CacheInterface => new CacheRedis($client, $namespace),
-                    ),
-                    CacheLayer::Database => $pdo === null ? null : $this->lazyOrDirect(
+                    CacheLayer::Redis => $redis === null ? null : new CacheRedis($redis, $namespace),
+                    CacheLayer::Database => $pdo === null ? null : new CacheDatabase(
                         $pdo,
-                        static fn (PDO $handle): CacheInterface => new CacheDatabase(
-                            $handle,
-                            (string) ($env('cache_db_table') ?? 'cache'),
-                            namespace: $namespace,
-                        ),
+                        (string) ($env('cache_db_table') ?? 'cache'),
+                        namespace: $namespace,
                     ),
                 };
             } catch (\Throwable) {
@@ -99,17 +91,5 @@ final class BuildCacheFromEnv
         }
 
         return new Cache($layers);
-    }
-
-    /**
-     * @template T of object
-     * @param T|Closure(): T $resource
-     * @param Closure $layer builds the layer from the resolved resource
-     */
-    private function lazyOrDirect(object $resource, Closure $layer): CacheInterface
-    {
-        return $resource instanceof Closure
-            ? new LazyCacheLayer(static fn (): CacheInterface => $layer($resource()))
-            : $layer($resource);
     }
 }

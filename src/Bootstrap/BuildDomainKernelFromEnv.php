@@ -19,7 +19,7 @@ use JardisCore\Kernel\Bootstrap\Handler\AssertNoUnresolvedSecret;
 use JardisCore\Kernel\Bootstrap\Handler\BuildSecretHandler;
 use JardisCore\Kernel\Bootstrap\Handler\LoadEnvForKernel;
 use JardisCore\Kernel\Bootstrap\Handler\NormalizeEnvKeys;
-use JardisCore\Kernel\Bootstrap\Handler\ProvideRedisFromEnv;
+use JardisCore\Kernel\Bootstrap\Handler\BuildRedisFromEnv;
 use JardisCore\Kernel\Bootstrap\Handler\ProvideWriterPdo;
 use JardisCore\Kernel\Bootstrap\Handler\ReadEnvValue;
 use JardisCore\Kernel\Bootstrap\Handler\ResolveSecretKeyProvider;
@@ -67,13 +67,12 @@ use JardisCore\Kernel\DomainKernel;
  * Everything is lazy (Bescheid Rolf 2026-10-15: all services lazy): building
  * the kernel wires, it opens nothing external — no database connection, no
  * SQLite file, no Redis socket. The shared Redis client and writer PDO travel
- * as memoizing provider closures ({@see ProvideRedisFromEnv},
- * {@see ProvideWriterPdo}) that the `redis`/`db` cache layer
- * ({@see LazyCacheLayer}), the `database` messaging transport and a listed
- * `redis` log handler call at their own first use. The first access opens the
- * resource, and an error appears there, not at bootstrap. One exception
- * remains until `jardisadapter/logger` can take a provider: a `redis` entry
- * in `LOG_HANDLERS` connects while the logger is built.
+ * as memoizing provider closures ({@see BuildRedisFromEnv},
+ * {@see ProvideWriterPdo}) that the adapters take as `Closure(): Redis` /
+ * `Closure(): PDO` (`CacheRedis`/`CacheDatabase`, `LoggerBuilder::addRedis()`,
+ * `ConnectionFactory::fromDbConnection()`) and call at their own first use.
+ * The first access opens the resource, and an error appears there, not at
+ * bootstrap.
  *
  * Auth (`AUTH_TOKEN_KEY` + `jardissupport/auth`, see {@see BuildAuthServicesFromEnv}):
  * the token store runs on the same `$connection`, built lazily on first use so a
@@ -113,7 +112,7 @@ final class BuildDomainKernelFromEnv
     private readonly Closure $assertNoUnresolvedSecret;
     private readonly Closure $buildConnection;
     private readonly Closure $provideWriterPdo;
-    private readonly Closure $provideRedis;
+    private readonly Closure $buildRedis;
     private readonly Closure $buildCache;
     private readonly Closure $buildLogger;
     private readonly Closure $buildEventListenerProvider;
@@ -134,7 +133,7 @@ final class BuildDomainKernelFromEnv
         $this->assertNoUnresolvedSecret = (new AssertNoUnresolvedSecret())->__invoke(...);
         $this->buildConnection = (new BuildConnectionFromEnv())->__invoke(...);
         $this->provideWriterPdo = (new ProvideWriterPdo())->__invoke(...);
-        $this->provideRedis = (new ProvideRedisFromEnv())->__invoke(...);
+        $this->buildRedis = (new BuildRedisFromEnv())->__invoke(...);
         $this->buildCache = (new BuildCacheFromEnv())->__invoke(...);
         $this->buildLogger = (new BuildLoggerFromEnv())->__invoke(...);
         $this->buildEventListenerProvider = (new BuildEventListenerProviderFromEnv())->__invoke(...);
@@ -169,7 +168,7 @@ final class BuildDomainKernelFromEnv
         // Providers, not objects: obtaining the PDO opens the connection, and
         // that must not happen while the kernel is built.
         $writerPdo = ($this->provideWriterPdo)($connection);
-        $redis = ($this->provideRedis)($envGet);
+        $redis = ($this->buildRedis)($envGet);
         $listenerProvider = ($this->buildEventListenerProvider)();
 
         return new DomainKernel(

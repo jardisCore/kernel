@@ -123,15 +123,20 @@ final class BuildDomainKernelFromEnvTest extends TestCase
         self::assertSame('hello', $cache->get('bootstrap_test_key'));
     }
 
-    public function testRedisFanOutRaisesWhenRedisIsConfiguredButUnreachable(): void
+    public function testRedisFanOutBuildsWhenRedisIsConfiguredButUnreachableAndRaisesAtFirstAccess(): void
     {
-        // R1.3 rule 3 (G5): REDIS_HOST is set but unreachable — a configured,
-        // unreachable service now throws instead of BuildRedisFromEnv
-        // silently returning null to both cache and logger (behaviour change,
-        // CHANGELOG.md). See UnreachableServiceExceptionTest for the
-        // dedicated Integration coverage (PLAN.md AK2.5).
+        // R1.3 rule 3 (G5) stays loud: REDIS_HOST is set but unreachable, so a
+        // configured service is never silently dropped to null. Since Bescheid
+        // Rolf 2026-10-15 (alle Dienste lazy) it raises where Redis is first
+        // used, not while the kernel is built (CHANGELOG.md). See
+        // LazyBootstrapInvariantTest for the full invariant.
+        $kernel = (new BuildDomainKernelFromEnv())($this->fixturePath('RedisFanOutUnreachable'));
+        $cache = $kernel->cache();
+        self::assertNotNull($cache);
+        self::assertNotNull($kernel->logger());
+
         $this->expectException(InvalidEnvConfigurationException::class);
 
-        (new BuildDomainKernelFromEnv())($this->fixturePath('RedisFanOutUnreachable'));
+        $cache->get('anything');
     }
 }

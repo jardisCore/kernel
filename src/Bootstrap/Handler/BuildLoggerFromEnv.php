@@ -21,13 +21,11 @@ use Redis;
  * Redis fan-out (D4) — built once by `BuildRedisFromEnv` and shared with
  * `BuildCacheFromEnv`.
  *
- * `$redis` may be a provider Closure ({@see ProvideRedisFromEnv}): it is called
- * only when a `redis` log handler is actually listed, so an unreachable Redis
- * that no handler uses never fails the boot. `jardisadapter/logger`'s
- * `addRedis()` takes an opened client, so a listed `redis` handler still
- * connects at build time — an unreachable configured Redis throws
- * {@see \JardisCore\Kernel\Exception\InvalidEnvConfigurationException}
- * instead of being swallowed by the defensive catch below.
+ * `$redis` may be a provider Closure ({@see BuildRedisFromEnv}): `addRedis()`
+ * (jardisadapter/logger >= 1.1) takes it as is and calls it at the first log
+ * write, so a listed `redis` handler opens nothing while the logger is built.
+ * A provider failure at that moment reaches the logger's `setErrorHandler()`
+ * (the handler does not swallow it, the `Logger` reports it there).
  */
 final class BuildLoggerFromEnv
 {
@@ -52,7 +50,6 @@ final class BuildLoggerFromEnv
                 continue;
             }
 
-            $redisClient = $type === LogHandler::Redis && $redis instanceof Closure ? $redis() : $redis;
 
             try {
                 match ($type) {
@@ -64,8 +61,8 @@ final class BuildLoggerFromEnv
                     LogHandler::ErrorLog => $builder->addErrorLog($level),
                     LogHandler::Syslog => $builder->addSyslog($level),
                     LogHandler::BrowserConsole => $builder->addBrowserConsole($level),
-                    LogHandler::Redis => $redisClient instanceof Redis
-                        ? $builder->addRedis($level, $redisClient)
+                    LogHandler::Redis => $redis !== null
+                        ? $builder->addRedis($level, $redis)
                         : null,
                     LogHandler::Slack => $this->addUrlHandler($env, 'log_slack_url', $builder, $type, $level),
                     LogHandler::Teams => $this->addUrlHandler($env, 'log_teams_url', $builder, $type, $level),

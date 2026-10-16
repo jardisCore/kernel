@@ -124,6 +124,30 @@ final class BuildCacheFromEnvTest extends TestCase
         self::assertSame(0, $calls);
     }
 
+    public function testRedisLayerProviderIsCalledOnceOnFirstAccessAndSharedAcrossLayerCalls(): void
+    {
+        $calls = 0;
+        $redis = new \Redis();
+        $redis->connect('kernel-test-redis', 6379);
+
+        $cache = (new BuildCacheFromEnv())(
+            $this->envFrom(['cache_layers' => 'redis', 'cache_namespace' => 'kernel_lazy_test']),
+            null,
+            function () use (&$calls, $redis): \Redis {
+                $calls++;
+
+                return $redis;
+            },
+        );
+
+        self::assertInstanceOf(CacheInterface::class, $cache);
+        self::assertSame(0, $calls);
+        self::assertTrue($cache->set('redis_key', 'redis_value'));
+        self::assertSame('redis_value', $cache->get('redis_key'));
+        self::assertSame(1, $calls);
+        $cache->delete('redis_key');
+    }
+
     /**
      * @param array<string, mixed> $data
      * @return Closure(string): mixed

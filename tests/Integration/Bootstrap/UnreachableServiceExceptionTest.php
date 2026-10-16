@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace JardisCore\Kernel\Tests\Integration\Bootstrap;
 
+use JardisAdapter\Logger\Handler\LogRedis;
+use JardisAdapter\Logger\Logger;
 use JardisCore\Kernel\Bootstrap\BuildDomainKernelFromEnv;
 use JardisCore\Kernel\Exception\InvalidEnvConfigurationException;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
@@ -83,16 +85,26 @@ final class UnreachableServiceExceptionTest extends TestCase
         $cache->get('anything');
     }
 
-    public function testUnreachableRedisHostWithRedisLogHandlerStillThrowsWhileBuildingTheLogger(): void
+    public function testUnreachableRedisHostWithRedisLogHandlerBuildsAndFailsAtFirstLogWrite(): void
     {
-        // jardisadapter/logger takes an opened Redis client, so a listed
-        // `redis` handler connects at build time — and must not be swallowed
-        // by the logger handler's defensive catch (OFFEN-FUER-L15b).
-        $this->expectException(InvalidEnvConfigurationException::class);
-
-        (new BuildDomainKernelFromEnv())(
+        // Bescheid Rolf 2026-10-15: alle Dienste lazy. jardisadapter/logger
+        // >= 1.1 takes the Redis provider, so a listed `redis` handler no
+        // longer connects while the logger is built. The configured-but-
+        // unreachable rule stays loud: the handler does not swallow the
+        // provider's exception (the Logger routes it to its error handler).
+        $kernel = (new BuildDomainKernelFromEnv())(
             sys_get_temp_dir(),
             "REDIS_HOST=nonexistent_host_that_does_not_exist\nREDIS_PORT=6379\nLOG_HANDLERS=redis\n",
         );
+        $logger = $kernel->logger();
+        self::assertInstanceOf(Logger::class, $logger);
+
+        $logger->error('first write');
+
+        $handlers = $logger->getHandlersByClass(LogRedis::class);
+        self::assertCount(1, $handlers);
+        $this->expectException(InvalidEnvConfigurationException::class);
+
+        reset($handlers)->getRedis();
     }
 }

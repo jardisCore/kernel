@@ -107,8 +107,7 @@ Jardis Builder, not provided by this package.
 | `DomainKernel` | Immutable, constructor injection, implements `DomainKernelInterface` (13 methods). `container()` → `Factory` | **current** |
 | `Bootstrap\BuildDomainKernelFromEnv` | Optional ENV packer. One invokable class (`__invoke(string $projectRoot): DomainKernel`), no static factory | **current** |
 | `Bootstrap\LazyAuthServices` | Proxy that builds the auth services on first use (the token store needs the DB connection, resolving it may open it) | **current** |
-| `Bootstrap\LazyCacheLayer` | PSR-16 proxy that builds one cache layer (`redis`/`db`) on its first call, so assembling the `Cache` opens neither Redis nor the database | **current** |
-| `Bootstrap\Handler\*` (15 classes) | Closures the packer composes: `BuildConnectionFromEnv`, `ExtractPdoFromConnection`, `ProvideWriterPdo`, `ProvideRedisFromEnv`, `MemoizeProvider`, `BuildRedisFromEnv`, `BuildCacheFromEnv`, `BuildLoggerFromEnv`, `BuildEventListenerProviderFromEnv`, `BuildEventDispatcherFromProvider`, `BuildHttpClientFromEnv`, `BuildMailerFromEnv`, `BuildFilesystemFromEnv`, `BuildMessagingFromEnv`, `BuildAuthServicesFromEnv`; plus normalization helpers `NormalizeEnvBool`, `IsEnvValueUnset` | **current** |
+| `Bootstrap\Handler\*` (15 classes) | Closures the packer composes: `BuildConnectionFromEnv`, `ExtractPdoFromConnection`, `ProvideWriterPdo`, `MemoizeProvider`, `BuildRedisFromEnv` (a lazy `Closure(): Redis` provider), `BuildCacheFromEnv`, `BuildLoggerFromEnv`, `BuildEventListenerProviderFromEnv`, `BuildEventDispatcherFromProvider`, `BuildHttpClientFromEnv`, `BuildMailerFromEnv`, `BuildFilesystemFromEnv`, `BuildMessagingFromEnv`, `BuildAuthServicesFromEnv`; plus normalization helpers `NormalizeEnvBool`, `IsEnvValueUnset` | **current** |
 | `Bootstrap\Data\CacheLayer` | ENV enum for `CACHE_LAYERS` — 4 cases: `Memory`, `Apcu`, `Redis`, `Database` | **current** |
 | `Bootstrap\Data\LogHandler` | ENV enum for `LOG_HANDLERS` — 11 cases: `File`, `Console`, `ErrorLog`, `Syslog`, `BrowserConsole`, `Redis`, `Slack`, `Teams`, `Loki`, `Webhook`, `Null` | **current** |
 | `Bootstrap\Data\CredentialEnvKeySuffixes` | Constant list of credential-shaped ENV key suffixes registered as DotEnv raw keys before `loadPrivate()` | **current** |
@@ -255,7 +254,7 @@ $ecommerce = new Ecommerce($kernel);
   not be reused. The **writer PDO fans out the same way**: handed out once as a
   memoizing provider (`ProvideWriterPdo`), it feeds both the optional `db`
   cache layer and the `database` messaging transport — one stack, one
-  database. Redis likewise travels as a provider (`ProvideRedisFromEnv`).
+  database. Redis likewise travels as a provider (`BuildRedisFromEnv` returns `?Closure(): Redis`).
 - **Every adapter is optional** (composer `suggest`, not required):
   `jardisadapter/{cache,dbconnection,eventdispatcher,filesystem,http,logger,mailer,messaging}` (and `jardissupport/auth` for `auth()`).
   Each Handler closure degrades to `null` via `class_exists()` guards when its
@@ -282,7 +281,7 @@ dispatches straight into `jardisadapter/messaging`'s
 | `kafka` | `KAFKA_BROKERS` (comma-separated `host:port` list, unchanged into the factory's host field — `KAFKA_PORT` is not canonical) | `KAFKA_USER`, `KAFKA_PASSWORD` (raw-key protected, `_USER` not `_USERNAME`) | consuming needs a group ID with no canonical key (G14) — `consume()` throws a clear `RuntimeException`; `publish()` is unaffected |
 | `rabbitmq` | `RABBITMQ_HOST` | `RABBITMQ_PORT` (5672), `RABBITMQ_USER`/`RABBITMQ_PASSWORD` (guest/guest) | no canonical queue-name key — the `consume(string $topic, ...)` topic doubles as the queue name |
 | `redis` | `REDIS_HOST` | `REDIS_PORT` (6379), `REDIS_PASSWORD` | same `REDIS_*` keys as the cache accessor (one stack = one Redis), but its own dedicated connections; uses Streams (`useStreams: true`), not Pub/Sub — measured against a real broker, Pub/Sub loses messages published before a subscriber is listening |
-| `database` | a usable `DB_*` connection (no key of its own) | `MESSAGING_DB_TABLE` (`domain_events`), `MESSAGING_DB_SUBSCRIPTION_TABLE` (`domain_event_subscriptions`), `MESSAGING_DB_DELETE_AFTER_PROCESSING` (`false`, via `NormalizeEnvBool`), `MESSAGING_DB_POLLING_INTERVAL_MS` (`1000`), `MESSAGING_DB_BATCH_SIZE` (`10`), `MESSAGING_DB_MAX_ATTEMPTS` (`3`) | broker-less Transactional Outbox; **reuses the writer PDO** the packer already built (`ExtractPdoFromConnection`, same handle the `db` cache layer gets) via `ConnectionFactory::fromPdo(..., manageLifecycle: false)` — no second DSN, no `MESSAGING_DB_DSN` key; `consume()` works (polls the table), Point-to-Point by default, fan-out is a per-call `['group' => …]` option; **tables are a migration, not a kernel task** (adapter ships the MySQL reference schema `src/Schema/domain_events.sql`) |
+| `database` | a usable `DB_*` connection (no key of its own) | `MESSAGING_DB_TABLE` (`domain_events`), `MESSAGING_DB_SUBSCRIPTION_TABLE` (`domain_event_subscriptions`), `MESSAGING_DB_DELETE_AFTER_PROCESSING` (`false`, via `NormalizeEnvBool`), `MESSAGING_DB_POLLING_INTERVAL_MS` (`1000`), `MESSAGING_DB_BATCH_SIZE` (`10`), `MESSAGING_DB_MAX_ATTEMPTS` (`3`) | broker-less Transactional Outbox; **reuses the writer PDO** the packer already built (`ExtractPdoFromConnection`, same handle the `db` cache layer gets) via `ConnectionFactory::fromDbConnection(provider, manageLifecycle: false)` — no second DSN, no `MESSAGING_DB_DSN` key; `consume()` works (polls the table), Point-to-Point by default, fan-out is a per-call `['group' => …]` option; **tables are a migration, not a kernel task** (adapter ships the MySQL reference schema `src/Schema/domain_events.sql`) |
 
 `database` chosen with no usable writer PDO (no `DB_*` at all) throws
 `InvalidEnvConfigurationException` — `MESSAGING_TRANSPORT=database requires a
@@ -299,8 +298,9 @@ first called on the packed kernel, not on first `publish()`. The actual
 `connect()`/`publish()`/`consume()` — and therefore any "configured but
 unreachable" failure — stays deferred to first use (the adapter's own lazy
 design). The `database` transport is lazy one step further: it receives the
-writer-PDO provider and wraps it (`fromPdo`) only when the publisher/consumer
-is first built, so `messaging()` opens no database connection.
+writer-PDO provider and hands it to `ConnectionFactory::fromDbConnection()`
+(messaging >= 1.1), which resolves it at the first publish/consume, so
+`messaging()` opens no database connection.
 
 ## THE GENERATED SIDE (not in this package)
 
@@ -344,7 +344,7 @@ HTTP-Delivery für den DomainKernel (FastRoute-Router, PSR-15-Pipeline, kanonisc
   disjoint listener sets.
 - Prefer plain `PDO`; `ConnectionPool` (`jardisadapter/dbconnection`) only
   when read replicas or health-checks are needed.
-- **Everything is lazy — building the kernel opens nothing external** (Bescheid Rolf 2026-10-15: alle Dienste lazy; `jardisadapter/dbconnection` >= 1.4): no database connection, no SQLite file, no Redis socket. The first access opens, and an error appears there, not at bootstrap. Via the packer mysql/pgsql **and sqlite** are a `ConnectionPool` (single lazy writer without readers; SQLite validates the path and applies its PRAGMAs at the first open); only the no-adapter fallback is a plain eager `PDO`. The `db` cache layer, the `redis` cache layer and the `database` messaging transport get a provider closure (`ProvideWriterPdo`, `ProvideRedisFromEnv`): the cache layers are `LazyCacheLayer` proxies, the messaging transport wraps the PDO when its publisher/consumer is first built. **Remaining exception:** `jardisadapter/logger` `addRedis()` takes an opened client, so a `redis` entry in `LOG_HANDLERS` still connects (and throws when unreachable) while the logger is built. A configured `dbConnection()` is therefore a `ConnectionPoolInterface` for sqlite too — `instanceof PDO` only holds in the no-adapter fallback.
+- **Everything is lazy — building the kernel opens nothing external** (Bescheid Rolf 2026-10-15: alle Dienste lazy; `jardisadapter/dbconnection` >= 1.4): no database connection, no SQLite file, no Redis socket. The first access opens, and an error appears there, not at bootstrap. Via the packer mysql/pgsql **and sqlite** are a `ConnectionPool` (single lazy writer without readers; SQLite validates the path and applies its PRAGMAs at the first open); only the no-adapter fallback is a plain eager `PDO`. The `db` cache layer, the `redis` cache layer, a `redis` log handler and the `database` messaging transport get a provider closure (`ProvideWriterPdo`, `BuildRedisFromEnv`) that the adapters take directly (cache/logger/messaging >= 1.1: `CacheDatabase`/`CacheRedis`, `LoggerBuilder::addRedis()`, `ConnectionFactory::fromDbConnection()`) and call at their own first use — the kernel has no lazy proxy of its own for them. Errors at the first access: the `redis` cache layer throws `InvalidEnvConfigurationException`; a `redis` log handler does not throw into the caller (the `Logger` routes the failure to its error handler; `LogRedis::getRedis()` throws it); an unopenable database path is the adapter's `RuntimeException` (cache and messaging); a provider `PDOException` in the `database` transport arrives wrapped by the package as `PublishException`. A configured `dbConnection()` is therefore a `ConnectionPoolInterface` for sqlite too — `instanceof PDO` only holds in the no-adapter fallback.
 - **Bool-shaped ENV values go through `NormalizeEnvBool`, never a raw `===
   'true'` string compare** — the packer already applies it to every boolean
   Handler key; an unparsable value throws instead of degrading.

@@ -17,24 +17,39 @@ file or a Redis socket. The first access opens, an error appears there.
   `InvalidEnvConfigurationException` at bootstrap — the adapter's
   `RuntimeException` surfaces at the first access.
 - The writer PDO and the Redis client reach cache, messaging and logger as
-  memoizing provider closures (`ProvideWriterPdo`, `ProvideRedisFromEnv`,
-  `MemoizeProvider`). `BuildCacheFromEnv`, `BuildMessagingFromEnv` accept
-  `PDO|Closure`, `BuildCacheFromEnv`/`BuildLoggerFromEnv` accept `Redis|Closure`
-  (a ready object still works). An unreachable configured Redis that nothing
-  uses no longer fails the boot; a `redis` cache layer throws
-  `InvalidEnvConfigurationException` at its first call.
-- The `db` / `redis` cache layers are built behind `LazyCacheLayer`; the
-  `database` messaging transport wraps the PDO when its publisher/consumer is
-  first built.
+  memoizing provider closures (`ProvideWriterPdo`, `MemoizeProvider`;
+  `BuildRedisFromEnv` now returns `?Closure(): Redis` itself — host and
+  `ext-redis` are checked eagerly without I/O, `connect`/`auth`/`select` run in
+  the provider and a failure is an `InvalidEnvConfigurationException` at the
+  first access). The adapters take the provider directly: `CacheRedis` /
+  `CacheDatabase` (`jardisadapter/cache` `^1.1`), `LoggerBuilder::addRedis()`
+  (`jardisadapter/logger` `^1.1`) and `ConnectionFactory::fromDbConnection()`
+  for the `database` messaging transport (`jardisadapter/messaging` `^1.1`).
+  `BuildCacheFromEnv`, `BuildMessagingFromEnv` accept `PDO|Closure`,
+  `BuildCacheFromEnv`/`BuildLoggerFromEnv` accept `Redis|Closure` (a ready
+  object still works). An unreachable configured Redis that nothing uses no
+  longer fails the boot; a `redis` cache layer throws
+  `InvalidEnvConfigurationException` at its first call, a `redis` log handler
+  reports the failure through the logger's error handler at its first write
+  (logging never throws into the caller).
+- The `database` messaging transport builds ONE `fromDbConnection()` connection
+  object at wiring time (no I/O); the PDO is resolved at the first
+  publish/consume. A provider `PDOException` is wrapped by the package
+  (`DatabasePublisher` -> `PublishException`, `MessagePublisher` ->
+  `PublishException('All publisher layers failed...')`).
 
 ### Removed
 
 - `Handler\IsWriterPdoRequired` — obsolete: providing the PDO opens nothing.
+- `Bootstrap\LazyCacheLayer` (PSR-16 proxy) and `Handler\ProvideRedisFromEnv` —
+  superseded by the adapters' own provider support (cache/logger/messaging
+  `^1.1`); the kernel keeps no lazy mechanism of its own for them.
 
-### Known limit
+### Dependencies
 
-- A `redis` entry in `LOG_HANDLERS` still connects while the logger is built
-  (`jardisadapter/logger` `addRedis()` takes an opened client).
+- `require-dev` and `suggest`: `jardisadapter/cache` `^1.1`,
+  `jardisadapter/logger` `^1.1`, `jardisadapter/messaging` `^1.1`,
+  `jardisadapter/dbconnection` `^1.4`.
 
 ## [2.6.0] — 2026-10-15 — `auth()` accessor, built from `AUTH_TOKEN_KEY`
 

@@ -308,7 +308,7 @@ Building the kernel wires, it opens nothing external — no database connection,
 
 With `jardisadapter/dbconnection` >= 1.4 installed, `BuildDomainKernelFromEnv` returns a `ConnectionPool` for mysql/pgsql **and sqlite** (a single writer when no `DB_READER{N}_HOST` is set). The connection opens on first access (`getWriter()`/`getReader()`, `pdo()`); a request without database access opens no connection, and an unreachable host or an unopenable SQLite path surfaces at the first access instead of at bootstrap. `dbConnection()` keeps its type `ConnectionPoolInterface|PDO|null`; the `PDO` branch is now only the no-adapter fallback, which stays eager (`new PDO`). Consumers must not assume `instanceof PDO` for sqlite.
 
-The writer PDO and the Redis client are shared by several services (cache, logger, messaging). They travel as memoizing provider closures (`ProvideWriterPdo`, `ProvideRedisFromEnv`): the `db` and `redis` cache layers are `LazyCacheLayer` proxies that call the provider on their first cache call, the `database` messaging transport wraps the PDO only when its publisher/consumer is first built. A configured but unreachable Redis that no cache layer uses no longer fails the boot; if a layer uses it, `InvalidEnvConfigurationException` is thrown at the first cache call. One exception remains: `jardisadapter/logger` takes an opened Redis client, so a `redis` entry in `LOG_HANDLERS` still connects (and throws when unreachable) while the logger is built.
+The writer PDO and the Redis client are shared by several services (cache, logger, messaging). They travel as memoizing provider closures (`ProvideWriterPdo`, `BuildRedisFromEnv`) that the adapters take directly (`jardisadapter/cache` / `logger` / `messaging` >= 1.1): `CacheDatabase` / `CacheRedis`, `LoggerBuilder::addRedis()` and `ConnectionFactory::fromDbConnection()` call the provider at their own first use. A configured but unreachable Redis that nothing uses no longer fails the boot; the `redis` cache layer throws `InvalidEnvConfigurationException` at its first call, and a `redis` entry in `LOG_HANDLERS` reports the failure through the logger's error handler at the first write (logging never throws into the caller). For the `database` messaging transport, a provider `PDOException` surfaces wrapped by the package as `PublishException`.
 
 ---
 
@@ -321,7 +321,7 @@ key they read:
 |-------|--------|
 | Key not set, or set to an empty value (`KEY=`) | `null` — the service degrades gracefully |
 | Key set to an unparsable/invalid value (e.g. `HTTP_VERIFY_SSL=maybe`, an unknown `DB_POOL_LOAD_BALANCING_STRATEGY`) | throws `JardisCore\Kernel\Exception\InvalidEnvConfigurationException` |
-| Key set, service configured, but unreachable (Redis host; DB with the no-adapter fallback) | throws `InvalidEnvConfigurationException` — at the service's first use (Redis cache layer), or while building when the service cannot be lazy (`redis` log handler, no-adapter PDO). With `jardisadapter/dbconnection` the database error is the adapter's `RuntimeException` at first access |
+| Key set, service configured, but unreachable (Redis host; DB with the no-adapter fallback) | throws `InvalidEnvConfigurationException` — at the service's first use (Redis cache layer; a `redis` log handler reports it through the logger's error handler), or while building when the service cannot be lazy (no-adapter PDO). With `jardisadapter/dbconnection` the database error is the adapter's `RuntimeException` at first access |
 | Key holds an unresolvable `secret(...)` value (no `APP_SECRET_KEY`, no `support/secret.key`) | throws `InvalidEnvConfigurationException` naming the KEY, never the value — before any adapter is built |
 | An ENV key the packer does not recognize | ignored |
 
@@ -349,11 +349,9 @@ contains the value.
 ```
 BuildDomainKernelFromEnv        Bootstrap-Packer (optional). ENV -> DomainKernel.
     ├── Handler\BuildConnectionFromEnv            mysql | pgsql | sqlite (+ pool)
-    ├── Handler\BuildRedisFromEnv                 shared fan-out (-> cache + logger)
+    ├── Handler\BuildRedisFromEnv                 lazy Redis provider, shared fan-out (-> cache "redis" layer + logger)
     ├── Handler\ProvideWriterPdo                  lazy writer PDO (-> cache "db" layer + messaging "database")
-    ├── Handler\ProvideRedisFromEnv                lazy Redis (-> cache "redis" layer + logger)
     ├── Handler\MemoizeProvider                    build-once provider closure
-    ├── LazyCacheLayer                             builds a cache layer on first use
     ├── Handler\BuildCacheFromEnv                  memory | apcu | redis | db
     ├── Handler\BuildLoggerFromEnv                 file | console | slack | ... (+redis)
     ├── Handler\BuildEventListenerProviderFromEnv  shared provider (D3)

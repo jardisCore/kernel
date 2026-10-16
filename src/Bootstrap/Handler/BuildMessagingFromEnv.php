@@ -56,7 +56,8 @@ use RuntimeException;
  * open a connection of its own and has no `MESSAGING_DB_DSN`-style key —
  * it REUSES the writer PDO of the connection the packer already built from
  * `DB_*` ({@see ProvideWriterPdo}, handed in as this handler's `$pdo`
- * argument) via `ConnectionFactory::fromPdo(..., manageLifecycle: false)`:
+ * argument) via `ConnectionFactory::fromDbConnection(..., manageLifecycle: false)`
+ * (a ready PDO via `fromPdo()`):
  * one stack, one database, and the messaging side never closes a handle the
  * domain code still uses. Table/polling/retry behaviour comes from the six
  * optional `MESSAGING_DB_*` keys, each defaulting to the adapter's own
@@ -105,8 +106,8 @@ use RuntimeException;
  *   two (no default — an implicit "localhost" would silently hide a missing
  *   value the same way `KAFKA_BROKERS` used to), and a writer-PDO provider
  *   for database (its connection is opened lazily — {@see ProvideWriterPdo};
- *   `fromPdo()` runs when the publisher/consumer is first built, with the
- *   rest of the adapter's lazy part). Both failure kinds surface
+ *   the adapter's `fromDbConnection()` resolves it at the first
+ *   publish/consume). Both failure kinds surface
  *   as {@see InvalidEnvConfigurationException} the moment `messaging()` is
  *   first called on the packed kernel, not on first `publish()`.
  * - **Lazy (the adapter's own `MessagingService`):** the actual
@@ -339,23 +340,23 @@ final class BuildMessagingFromEnv
 
         $options = $this->databaseOptions($env);
 
-        // Lazy (Bescheid Rolf 2026-10-15: all services lazy): the writer PDO is
-        // only fetched — and the domain connection thereby opened — when the
-        // publisher or consumer is first built, never while the kernel is
-        // built. Wrapped once for both; with manageLifecycle: false there is
-        // no second connect() and no disconnect(), the domain's own
-        // connection stays in charge.
-        $resolve = $pdo instanceof Closure ? $pdo : static fn (): PDO => $pdo;
-        $connection = (new MemoizeProvider())(
-            static fn () => $connectionFactory->fromPdo($resolve(), manageLifecycle: false)
-        );
+        // Lazy (Bescheid Rolf 2026-10-15: all services lazy): the adapter owns the
+        // laziness. A provider goes to `fromDbConnection()` — resolved at the first
+        // `getClient()`, i.e. when the first publish/consume runs, never while the
+        // kernel is built; a ready PDO keeps `fromPdo()`. With manageLifecycle: false
+        // there is no second connect() and no disconnect(), the domain's own
+        // connection stays in charge. One connection object serves publisher and
+        // consumer.
+        $connection = $pdo instanceof Closure
+            ? $connectionFactory->fromDbConnection($pdo, manageLifecycle: false)
+            : $connectionFactory->fromPdo($pdo, manageLifecycle: false);
 
         return new MessagingService(
             publisherFactory: static fn () => new MessagePublisher(
-                $publisherFactory->database($connection(), $options)
+                $publisherFactory->database($connection, $options)
             ),
             consumerFactory: static fn () => new MessageConsumer(
-                $consumerFactory->database($connection(), $options)
+                $consumerFactory->database($connection, $options)
             ),
         );
     }
