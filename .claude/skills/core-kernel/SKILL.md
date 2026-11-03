@@ -5,7 +5,7 @@ user-invocable: false
 zone: post-active
 persona: C
 prerequisites: [foundation-architecture, foundation-patterns]
-next: [generated-code-extend, core-app]
+next: [generated-code-extend, core-app, support-response]
 ---
 
 # KERNEL_COMPONENT_SKILL
