@@ -15,17 +15,16 @@ next: [generated-code-extend, core-app]
 
 `jardiscore/kernel` is now a pure **Application-layer offering**, outside the
 hexagonal inner rings. The former domain-side classes are **deleted**:
-`DomainApp`, `ServiceRegistry`, `BoundedContext`, `Response/*`
-(`ContextResponse`, `DomainResponse`, `DomainResponseTransformer`,
-`ResponseStatus`). What replaced them:
+`DomainApp`, `ServiceRegistry`, `BoundedContext`, `Response/*`. What replaced them:
 
 - **The Jardis Builder now generates** the domain's Context body
-  (`{Domain}Context`, 1:1-structural port of the former `BoundedContext` —
+  (`{Domain}Context`, carries
   `handle()`/`context()` (now `protected`), `resource()/payload()/version()/
-  result()`) and the **Response-Trio** (`ContextResponse`/`DomainResponse`/
-  `DomainResponseTransformer`) per domain, under `{Domain}\Response\`. See
-  the `generated-code-extend` skill for that generated-code contract — this
-  package does **not** define those classes anymore.
+  result()`). Answers are built from the package `jardissupport/response`
+  (`ContextResponse`, `TransformResponse`, `BuildResponseData`, `ProjectOutcome`;
+  envelope `{status,data,errors,meta}`, process answers carry `@outcome`) — see
+  the `support-response` skill. See the `generated-code-extend` skill for the
+  generated-code contract — this package does **not** define those classes.
 - **Shared vocabulary moved to `jardissupport/contracts`:** `ResponseStatus`
   (enum), `GeneratedContextInterface` (the D5 marker every generated
   `{Domain}Context` implements), `DomainKernelInterface` (13 methods incl.
@@ -95,7 +94,7 @@ new {Domain}($kernel)               ← generated Domain facade (final, JardisCo
 {Domain}Context                     ← GENERATED per domain (generated-code-extend skill)
     handle()/context() (Kernel-Naht, protected) · resource()/payload()/version()/result()
     ↓ result()
-ContextResponse (GENERATED) → DomainResponseTransformer (GENERATED) → DomainResponse (GENERATED)
+ContextResponseInterface → jardissupport/response (TransformResponse, ProjectOutcome) → DomainResponseInterface
 ```
 
 Everything below the `DomainKernel` line is generated per domain by the
@@ -116,7 +115,7 @@ Jardis Builder, not provided by this package.
 | `DomainApp` | Lazy kernel bootstrap, ClassVersion hooks, service sharing, `kernel()`/`handle()` | **deleted** — no replacement class; the generated Domain facade is `final` and holds only the `DomainKernel` |
 | `BoundedContext` | Use-case handler base (`handle()`/`context()`, Factory + ClassVersion) | **deleted** — the generated `{Domain}Context` carries this role (`generated-code-extend`) |
 | `ServiceRegistry` | Static first-write-wins service sharing | **deleted** — no replacement; sharing is now explicit (same `DomainKernel` instance) |
-| `ContextResponse` / `DomainResponse` / `DomainResponseTransformer` / `ResponseStatus` | Response pipeline | **deleted from this package** — generated per domain under `{Domain}\Response\`; `ResponseStatus` moved to `jardissupport/contracts` |
+| `ContextResponse` / `DomainResponse` / `DomainResponseTransformer` / `ResponseStatus` | Response pipeline | **deleted from this package** — responses come from `jardissupport/response` (4.2); `ResponseStatus` and the response interfaces live in `jardissupport/contracts` |
 
 ## Eine `.env` im Root (v2.4.0) — what changed
 
@@ -316,8 +315,10 @@ Builder — see `generated-code-extend` for the full contract:
   `version()`/`result()`, and `classVersion()`/`classVersionConfig()`.
   `implements JardisSupport\Contract\Kernel\GeneratedContextInterface` (the D5
   marker) — **no `extends BoundedContext`**, no package base class at all.
-- **`{Domain}\Response\`** — the generated Response-Trio (`ContextResponse`,
-  `DomainResponse`, `DomainResponseTransformer`). `ResponseStatus` itself lives in
+- **Responses** — no generated Response classes: `{Domain}Context::result()`
+  returns a `ContextResponseInterface` (implemented by `ContextResponse` from
+  `jardissupport/response`) and `transformer()` a `TransformResponse`; process
+  doors answer through `ProjectOutcome` (`@outcome`). `ResponseStatus` lives in
   `jardissupport/contracts`.
 - **The Domain facade** (e.g. `Ecommerce`) is `final class`, holds only the
   `DomainKernel` (`DomainKernelInterface $kernel`), and self-registers every
@@ -328,7 +329,7 @@ If you are extending or wiring **generated** code, read `generated-code-extend`
 `DomainKernel`.
 
 HTTP-Delivery für den DomainKernel (FastRoute-Router, PSR-15-Pipeline, kanonischer
-`DomainResponse`→PSR-7-Mapper): siehe `core-app` (`jardiscore/app`).
+`DomainResponseInterface`→PSR-7-Mapper): siehe `core-app` (`jardiscore/app`).
 
 ## RULES
 - `DomainKernel` is purely immutable — builds nothing, only consumes. All 11
