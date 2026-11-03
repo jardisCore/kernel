@@ -1,12 +1,16 @@
 ---
 name: core-kernel
-description: jardiscore/kernel v2 - the immutable DomainKernel (12 nullable/typed accessors + container(), incl. eventListenerRegistry, messaging, auth) plus the optional Bootstrap-Packer BuildDomainKernelFromEnv (projectRoot-based: ONE `<projectRoot>/.env` plus its cascade, or an `.env`-formatted string; process environment always wins; secret key from APP_SECRET_KEY or `<projectRoot>/support/secret.key`; auth() from AUTH_TOKEN_KEY). DomainApp/BoundedContext/ServiceRegistry/Response pipeline were removed (Kernel-Entkopplung 2026-07) - the generated {Domain}Context now carries handle()/context()/resource()/payload()/version()/result(). TRIGGER: DomainKernel, DomainKernelInterface, projectRoot, BuildDomainKernelFromEnv, Bootstrap-Packer, eventListenerRegistry, messaging(), auth(), AUTH_TOKEN_KEY, .env im Root, envContent string mode, APP_SECRET_KEY, secret.key, InvalidEnvConfigurationException. Formerly (now generated, not in this package): DomainApp, BoundedContext, ServiceRegistry, SharedRegistry, ContextResponse, DomainResponse.
+description: jardiscore/kernel v2 - the immutable DomainKernel plus the optional ENV packer BuildDomainKernelFromEnv (one project-root .env + cascade). Use when building a DomainKernel, configuring .env/APP_SECRET_KEY/AUTH_TOKEN_KEY, or touching eventListenerRegistry, messaging(), auth().
 user-invocable: false
 zone: post-active
 persona: C
 prerequisites: [foundation-architecture, foundation-patterns]
 next: [generated-code-extend, core-app, support-response]
 ---
+
+## Triggers
+
+jardiscore/kernel v2 - the immutable DomainKernel (12 nullable/typed accessors + container(), incl. eventListenerRegistry, messaging, auth) plus the optional Bootstrap-Packer BuildDomainKernelFromEnv (projectRoot-based: ONE `<projectRoot>/.env` plus its cascade, or an `.env`-formatted string; process environment always wins; secret key from APP_SECRET_KEY or `<projectRoot>/support/secret.key`; auth() from AUTH_TOKEN_KEY). DomainApp/BoundedContext/ServiceRegistry/Response pipeline were removed (Kernel-Entkopplung 2026-07) - the generated {Domain}Context now carries handle()/context()/resource()/payload()/version()/result(). TRIGGER: DomainKernel, DomainKernelInterface, projectRoot, BuildDomainKernelFromEnv, Bootstrap-Packer, eventListenerRegistry, messaging(), auth(), AUTH_TOKEN_KEY, .env im Root, envContent string mode, APP_SECRET_KEY, secret.key, InvalidEnvConfigurationException. Formerly (now generated, not in this package): DomainApp, BoundedContext, ServiceRegistry, SharedRegistry, ContextResponse, DomainResponse.
 
 # KERNEL_COMPONENT_SKILL
 > `jardiscore/kernel` v2 | NS: `JardisCore\Kernel` | PHP 8.2+
