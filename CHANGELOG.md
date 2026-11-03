@@ -3,6 +3,18 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.1] — 2026-11-03 — skill core-kernel auf Stand kernel v2
+
+Documentation-only patch; no code changed.
+
+### Changed
+
+- The `core-kernel` skill now describes the generated `{Domain}Context`
+  (`handle()` / `context()` / `resource()` / `payload()` / `version()` /
+  `result()`) and answers from `jardissupport/response` instead of the removed
+  generated trio `ContextResponse` / `DomainResponse` /
+  `DomainResponseTransformer`; `next` points to `support-response`.
+
 ## [2.8.0] — 2026-10-16 — no adapter, no fallback (Entscheid O23 2026-10-16)
 
 Completes the lazy bootstrap (Bescheid Rolf 2026-10-15): the last eager path —
