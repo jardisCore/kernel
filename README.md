@@ -150,14 +150,14 @@ passed on as a cipher: the packer throws
 key (never the value) before any adapter is built. The key source is
 independent of the value source — a key file applies to string input too.
 
-`BuildDomainKernelFromEnv` wires ten services (cache, logger, event
-dispatcher + listener registry, HTTP client, DB connection, mailer,
-filesystem, messaging, auth) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
+`BuildDomainKernelFromEnv` wires twelve services (cache, logger, event
+dispatcher + listener registry, HTTP client + HTTP service, DB connection, mailer +
+mail service, filesystem, messaging, auth) from `DB_*` / `CACHE_*` / `LOG_*` / `HTTP_*` / `MAIL_*` /
 `REDIS_*` / `MESSAGING_*` / `MESSAGING_DB_*` / `KAFKA_*` / `RABBITMQ_*` / `AUTH_TOKEN_KEY` ENV keys — see
 [`docs/.env.example`](docs/.env.example) for the full key reference, grouped
 into the eight blocks (`app`, `database`, `redis`, `cache`, `logger`, `http`,
-`mail`, `messaging`) the tooling reads. The resulting packed `DomainKernel` exposes thirteen accessors in
-total (the ten services above, plus `projectRoot()`, `env()`, and
+`mail`, `messaging`) the tooling reads. The resulting packed `DomainKernel` exposes fifteen accessors in
+total (the twelve services above, plus `projectRoot()`, `env()`, and
 `container()`, which are not ENV-wired services — see the accessor table
 below). `projectRoot()` returns the project root passed to the packer, which
 is also the directory its `.env` is read from. Every adapter it can use
@@ -169,6 +169,26 @@ configured, means that accessor stays `null` on the packed DomainKernel. Nothing
 throws for a missing optional service — with one exception: `DB_*` configured
 (`DB_DRIVER=sqlite` or `DB_HOST`) while `jardisadapter/dbconnection` is missing
 throws `InvalidEnvConfigurationException` while building.
+
+### HTTP and mail for domain code — `http()` / `mail()`
+
+`http(): ?HttpServiceInterface` and `mail(): ?MailServiceInterface` (contracts
+`^2.19`) hand domain code ready-made calls through the kernel contract alone —
+no `JardisAdapter\*` import:
+
+```php
+$kernel->http()->post('https://hooks.example.test/orders', ['order' => 'A-1001']);   // JSON body; also get/put/patch/delete/head
+$kernel->mail()->sendMail('buyer@example.test', 'Order A-1001', 'Your order was placed.');
+```
+
+A 4xx/5xx HTTP status comes back as a response; only a failed transport throws.
+`httpClient()` (PSR-18, any request) and `mailer()` (fully composed messages) stay
+unchanged. The packer builds nothing extra: the instance behind `httpClient()` /
+`mailer()` is handed over as `http()` / `mail()` as well (the same object) when it
+fulfils the service contract, which `jardisadapter/http` `^1.1` and
+`jardisadapter/mailer` `^1.1` do — composer `conflict` blocks older adapters, so
+a configured service never silently ends up `null`. Without the adapter installed (or, for mail,
+without `MAIL_HOST`) the accessor is `null`.
 
 ### Auth — `AUTH_TOKEN_KEY`
 
@@ -204,6 +224,8 @@ $kernel = new DomainKernel(
     env: ['db_host' => 'localhost'],    // array — private ENV, file values only
     messaging: $messagingService,       // ?MessagingServiceInterface
     auth: $authServices,                // ?AuthServicesInterface
+    http: $httpService,                 // ?HttpServiceInterface
+    mail: $mailService,                 // ?MailServiceInterface
 );
 ```
 
@@ -222,6 +244,8 @@ $kernel = new DomainKernel(
 | `filesystem()` | `?FilesystemServiceInterface` |
 | `messaging()` | `?MessagingServiceInterface` — `MESSAGING_TRANSPORT=kafka \| rabbitmq \| redis \| database`; `database` is broker-less and reuses the writer PDO from `DB_*` |
 | `auth()` | `?AuthServicesInterface` — sessions (signed access + opaque refresh token), token issuer/redeemer, password hasher from `jardissupport/auth`; built from `AUTH_TOKEN_KEY` (see below), `null` without the key |
+| `http()` | `?HttpServiceInterface` — `get`/`delete`/`head`/`post`/`put`/`patch` for domain code, JSON bodies; via the packer the same instance as `httpClient()` (see "HTTP and mail for domain code") |
+| `mail()` | `?MailServiceInterface` — `sendMail($to, $subject, $text, $html, $options)` for domain code; via the packer the same instance as `mailer()` |
 
 `DomainKernel` builds nothing and reads no ENV itself — it is a pure,
 immutable consumer. All ENV/service-assembly is `Bootstrap\BuildDomainKernelFromEnv`'s
@@ -381,8 +405,10 @@ DomainKernel                    Immutable. Constructor injection only.
     ├── eventDispatcher()       ?EventDispatcherInterface
     ├── eventListenerRegistry() ?EventListenerRegistryInterface (paired with eventDispatcher, D3)
     ├── httpClient()            ?ClientInterface
+    ├── http()                  ?HttpServiceInterface (same instance as httpClient() via the packer)
     ├── dbConnection()          ConnectionPoolInterface | PDO | null
     ├── mailer()                ?MailerInterface
+    ├── mail()                  ?MailServiceInterface (same instance as mailer() via the packer)
     ├── filesystem()            ?FilesystemServiceInterface
     ├── messaging()             ?MessagingServiceInterface
     └── auth()                  ?AuthServicesInterface

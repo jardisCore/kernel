@@ -9,8 +9,10 @@ use JardisSupport\Contract\Auth\AuthServicesInterface;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
+use JardisSupport\Contract\Http\HttpServiceInterface;
 use JardisSupport\Contract\Kernel\DomainKernelInterface;
 use JardisSupport\Contract\Mailer\MailerInterface;
+use JardisSupport\Contract\Mailer\MailServiceInterface;
 use JardisSupport\Factory\Factory;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -226,5 +228,44 @@ class DomainKernelTest extends TestCase
         $auth = $this->createMock(AuthServicesInterface::class);
 
         $this->assertSame($auth, (new DomainKernel('/app/src', auth: $auth))->auth());
+    }
+
+    public function testHttpAndMailDefaultToNull(): void
+    {
+        $kernel = new DomainKernel('/app/src');
+
+        $this->assertNull($kernel->http());
+        $this->assertNull($kernel->mail());
+    }
+
+    public function testHttpAndMailReturnTheInjectedServices(): void
+    {
+        $http = $this->createMock(HttpServiceInterface::class);
+        $mail = $this->createMock(MailServiceInterface::class);
+
+        $kernel = new DomainKernel('/app/src', http: $http, mail: $mail);
+
+        $this->assertSame($http, $kernel->http());
+        $this->assertSame($mail, $kernel->mail());
+    }
+
+    public function testHttpServiceIsIndependentOfThePsrClient(): void
+    {
+        $client = $this->createMock(ClientInterface::class);
+
+        $kernel = new DomainKernel('/app/src', httpClient: $client);
+
+        $this->assertSame($client, $kernel->httpClient());
+        $this->assertNull($kernel->http());
+    }
+
+    public function testMailServiceIsIndependentOfTheMailer(): void
+    {
+        $mailer = $this->createMock(MailerInterface::class);
+
+        $kernel = new DomainKernel('/app/src', mailer: $mailer);
+
+        $this->assertSame($mailer, $kernel->mailer());
+        $this->assertNull($kernel->mail());
     }
 }
