@@ -28,9 +28,10 @@ without a `JardisAdapter\*` import. Additive — no existing signature changes.
   would otherwise leave `http()`/`mail()` silently `null` although the service is
   configured; `suggest` texts name the `^1.1` requirement; `require-dev`
   `jardisadapter/http` / `jardisadapter/mailer` `^1.1`.
-- composer: `conflict` adds `jardissupport/auth: <1.7` — contracts 2.19 carries
-  `SessionInterface::getExpiresAt()`, which `jardissupport/auth` < 1.7 does not
-  implement (fatal at class load); `require-dev` `jardissupport/auth` `^1.7`.
+- composer: `conflict` adds `jardissupport/auth: <1.7` — contracts carries
+  `SessionInterface::getExpiresAt()` (since contracts 2.12, so present in the `^2.19`
+  this release requires), which `jardissupport/auth` < 1.7 does not implement (fatal at
+  class load); `require-dev` `jardissupport/auth` `^1.7`.
 
 ### Breaks for implementers
 
