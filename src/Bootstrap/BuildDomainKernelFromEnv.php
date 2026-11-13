@@ -24,6 +24,8 @@ use JardisCore\Kernel\Bootstrap\Handler\ProvideWriterPdo;
 use JardisCore\Kernel\Bootstrap\Handler\ReadEnvValue;
 use JardisCore\Kernel\Bootstrap\Handler\ResolveSecretKeyProvider;
 use JardisCore\Kernel\DomainKernel;
+use JardisSupport\Contract\Http\HttpServiceInterface;
+use JardisSupport\Contract\Mailer\MailServiceInterface;
 
 /**
  * Packs a {@see DomainKernel} from a project root's `.env` — or from an
@@ -73,6 +75,13 @@ use JardisCore\Kernel\DomainKernel;
  * `ConnectionFactory::fromDbConnection()`) and call at their own first use.
  * The first access opens the resource, and an error appears there, not at
  * bootstrap.
+ *
+ * HTTP and mail services: `http()` / `mail()` are NOT built a second time —
+ * the instance behind `httpClient()` / `mailer()` is handed over as well when it
+ * fulfils `HttpServiceInterface` / `MailServiceInterface` (jardisadapter/http
+ * and jardisadapter/mailer >= 1.1, enforced by composer `conflict`); same
+ * instance, otherwise `null`. Domain code thus reaches both through the kernel
+ * contract alone, without an adapter import.
  *
  * Auth (`AUTH_TOKEN_KEY` + `jardissupport/auth`, see {@see BuildAuthServicesFromEnv}):
  * the token store runs on the same `$connection`, built lazily on first use so a
@@ -170,6 +179,11 @@ final class BuildDomainKernelFromEnv
         $writerPdo = ($this->provideWriterPdo)($connection);
         $redis = ($this->buildRedis)($envGet);
         $listenerProvider = ($this->buildEventListenerProvider)();
+        // One build, two accessors: the adapter instance that serves
+        // httpClient()/mailer() also serves http()/mail() when it fulfils the
+        // service contract (no second construction, same instance).
+        $httpClient = ($this->buildHttpClient)($envGet);
+        $mailer = ($this->buildMailer)($envGet);
 
         return new DomainKernel(
             projectRoot: $projectRoot,
@@ -177,13 +191,15 @@ final class BuildDomainKernelFromEnv
             logger: ($this->buildLogger)($envGet, $redis),
             eventDispatcher: ($this->buildEventDispatcher)($listenerProvider),
             eventListenerRegistry: $listenerProvider,
-            httpClient: ($this->buildHttpClient)($envGet),
+            httpClient: $httpClient,
             connection: $connection,
-            mailer: ($this->buildMailer)($envGet),
+            mailer: $mailer,
             filesystem: ($this->buildFilesystem)(),
             env: $env,
             messaging: ($this->buildMessaging)($envGet, $writerPdo),
             auth: ($this->buildAuth)($envGet, $connection),
+            http: $httpClient instanceof HttpServiceInterface ? $httpClient : null,
+            mail: $mailer instanceof MailServiceInterface ? $mailer : null,
         );
     }
 }

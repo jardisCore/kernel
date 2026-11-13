@@ -8,8 +8,10 @@ use JardisSupport\Contract\Auth\AuthServicesInterface;
 use JardisSupport\Contract\DbConnection\ConnectionPoolInterface;
 use JardisSupport\Contract\EventListener\EventListenerRegistryInterface;
 use JardisSupport\Contract\Filesystem\FilesystemServiceInterface;
+use JardisSupport\Contract\Http\HttpServiceInterface;
 use JardisSupport\Contract\Kernel\DomainKernelInterface;
 use JardisSupport\Contract\Mailer\MailerInterface;
+use JardisSupport\Contract\Mailer\MailServiceInterface;
 use JardisSupport\Contract\Messaging\MessagingServiceInterface;
 use JardisSupport\Factory\Factory;
 use PDO;
@@ -47,6 +49,8 @@ class DomainKernel implements DomainKernelInterface
         array $env = [],
         private readonly ?MessagingServiceInterface $messaging = null,
         private readonly ?AuthServicesInterface $auth = null,
+        private readonly ?HttpServiceInterface $http = null,
+        private readonly ?MailServiceInterface $mail = null,
     ) {
         if ($projectRoot === '') {
             throw new \InvalidArgumentException('projectRoot must not be empty');
@@ -128,5 +132,15 @@ class DomainKernel implements DomainKernelInterface
     public function auth(): ?AuthServicesInterface
     {
         return $this->auth;
+    }
+
+    public function http(): ?HttpServiceInterface
+    {
+        return $this->http;
+    }
+
+    public function mail(): ?MailServiceInterface
+    {
+        return $this->mail;
     }
 }

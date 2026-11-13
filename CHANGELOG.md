@@ -3,6 +3,41 @@
 All notable changes to `jardiscore/kernel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.9.0] — 2026-11-13 — http() and mail() for domain code
+
+Rückbau P0.3: domain code reaches HTTP and mail through the kernel contract,
+without a `JardisAdapter\*` import. Additive — no existing signature changes.
+
+### Added
+
+- `DomainKernel::http(): ?HttpServiceInterface` and
+  `DomainKernel::mail(): ?MailServiceInterface` (`jardissupport/contracts`
+  `^2.19`, `DomainKernelInterface` carries both). Two new nullable constructor
+  parameters `http` and `mail` at the END of the parameter list (named
+  arguments, as for every other service).
+- `BuildDomainKernelFromEnv` hands the instance it already built for
+  `httpClient()` / `mailer()` over as `http` / `mail` too when it implements
+  `HttpServiceInterface` / `MailServiceInterface` (`jardisadapter/http` /
+  `jardisadapter/mailer` `^1.1`): same object, no second build, `null`
+  otherwise. Still lazy — nothing opens at bootstrap.
+
+### Changed
+
+- composer: `jardissupport/contracts` `^2.19` (was `^2.11`); `conflict` adds
+  `jardisadapter/http: <1.1` and `jardisadapter/mailer: <1.1` — an older adapter
+  would otherwise leave `http()`/`mail()` silently `null` although the service is
+  configured; `suggest` texts name the `^1.1` requirement; `require-dev`
+  `jardisadapter/http` / `jardisadapter/mailer` `^1.1`.
+- composer: `conflict` adds `jardissupport/auth: <1.7` — contracts 2.19 carries
+  `SessionInterface::getExpiresAt()`, which `jardissupport/auth` < 1.7 does not
+  implement (fatal at class load); `require-dev` `jardissupport/auth` `^1.7`.
+
+### Breaks for implementers
+
+- Anyone who implements `DomainKernelInterface` themselves (test fakes, builder
+  `FakeDomainKernel`) must add `http()` and `mail()` — contracts 2.19 added them
+  to the interface. `DomainKernel` itself is unaffected for callers.
+
 ## [2.8.1] — 2026-11-03 — skill core-kernel auf Stand kernel v2
 
 Documentation-only patch; no code changed.
