@@ -203,7 +203,7 @@ connection as `dbConnection()`; a key that is not valid base64 of 32 bytes, or a
 key without a configured database, throws `InvalidEnvConfigurationException`
 naming `AUTH_TOKEN_KEY`. `auth()` is lazy: holding it opens no connection, the
 first `sessions()`/`tokenIssuer()`/... call does. Needs `jardissupport/auth`
-`^1.6` and `jardisadapter/dbconnection` `^1.4` (both optional, `suggest`).
+`^1.7` or `^2.0` and `jardisadapter/dbconnection` `^1.4` (both optional, `suggest`).
 
 ---
 
